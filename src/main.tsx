@@ -1,12 +1,12 @@
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import AppWrapper from "./AppWrapper.tsx";
+import App from "./App.tsx";
+import React from "react";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  // <React.StrictMode>
-  <AppWrapper />
-
-  // </React.StrictMode>,
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 );
 
 postMessage({ payload: "removeLoading" }, "*");

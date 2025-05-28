@@ -1,158 +1,104 @@
 import type { TraverseOptions, Node } from '@babel/traverse';
-//TODO: FIX BUG ON SHOWING MATH element thats return always {}
-const customMath = {
-	abs: () => { },
-	acos: () => { },
-	acosh: () => { },
-	asin: () => { },
-	asinh: () => { },
-	atan: () => { },
-	atanh: () => { },
-	atan2: () => { },
-	ceil: () => { },
-	cbrt: () => { },
-	expm1: () => { },
-	clz32: () => { },
-	cos: () => { },
-	cosh: () => { },
-	exp: () => { },
-	floor: () => { },
-	fround: () => { },
-	hypot: () => { },
-	imul: () => { },
-	log: () => { },
-	log1p: () => { },
-	log2: () => { },
-	log10: () => { },
-	max: () => { },
-	min: () => { },
-	pow: () => { },
-	random: () => { },
-	round: () => { },
-	sign: () => { },
-	sin: () => { },
-	sinh: () => { },
-	sqrt: () => { },
-	tan: () => { },
-	tanh: () => { },
-	trunc: () => { },
-	E: 2.718281828459045,
-	LN10: 2.302585092994046,
-	LN2: 0.6931471805599453,
-	LOG10E: 0.4342944819032518,
-	LOG2E: 1.4426950408889634,
-	PI: 3.141592653589793,
-	SQRT1_2: 0.7071067811865476,
-	SQRT2: 1.4142135623730951,
-}
 
 export default function ({ types: t }: any): { visitor: TraverseOptions<Node> } {
 
-	function visit(path: any) {
-
-		if (path.parentPath.node.type !== 'VariableDeclarator') return;
-		if (path.parentPath.parentPath.parentPath.node.type !== 'Program') return;
-		const variableName = path.parentPath.node.id.name;
-
-		path.parentPath.parentPath.insertAfter(
-			t.callExpression(t.identifier('debug'), [
-				t.identifier(path.node.loc.start.line.toString()),
-				t.identifier(variableName)
-			])
-		);
+	function shouldSkipExpression(path: any): boolean {
+		// Saltar si está en una declaración de variable
+		if (path.parentPath.node.type === 'VariableDeclarator') return true;
+		
+		// Saltar si no es una ExpressionStatement (línea independiente)
+		if (path.parentPath.node.type !== 'ExpressionStatement') return true;
+		
+		// Saltar si es dentro de un loop, condicional, función, clase, etc.
+		if (path.parentPath.parentPath?.node?.type === 'WhileStatement') return true;
+		if (path.parentPath.parentPath?.node?.type === 'ForStatement') return true;
+		if (path.parentPath.parentPath?.node?.type === 'IfStatement') return true;
+		if (path.parentPath.parentPath?.node?.type === 'FunctionDeclaration') return true;
+		if (path.parentPath.parentPath?.node?.type === 'FunctionExpression') return true;
+		if (path.parentPath.parentPath?.node?.type === 'ArrowFunctionExpression') return true;
+		if (path.parentPath.parentPath?.node?.type === 'MethodDefinition') return true;
+		if (path.parentPath.parentPath?.node?.type === 'ClassDeclaration') return true;
+		if (path.parentPath.parentPath?.node?.type === 'ObjectExpression') return true;
+		if (path.parentPath.parentPath?.node?.type === 'ArrayExpression') return true;
+		if (path.parentPath.parentPath?.node?.type === 'TryStatement') return true;
+		if (path.parentPath.parentPath?.node?.type === 'CatchClause') return true;
+		if (path.parentPath.parentPath?.node?.type === 'BlockStatement') return true;
+		
+		// Saltar si ya es una llamada debug
+		if (path.node.callee && 'name' in path.node.callee && path.node.callee.name === 'debug') return true;
+		
+		// Saltar si no tiene información de línea
+		if (!path.node.loc?.start?.line) return true;
+		
+		// Solo permitir expresiones en el nivel superior del programa
+		let currentPath = path.parentPath;
+		while (currentPath) {
+			if (currentPath.node.type === 'Program') {
+				// Estamos en el nivel superior, esto es válido
+				break;
+			}
+			if (currentPath.node.type === 'FunctionDeclaration' ||
+			    currentPath.node.type === 'FunctionExpression' ||
+			    currentPath.node.type === 'ArrowFunctionExpression' ||
+			    currentPath.node.type === 'ClassDeclaration' ||
+			    currentPath.node.type === 'ObjectExpression' ||
+			    currentPath.node.type === 'ArrayExpression' ||
+			    currentPath.node.type === 'BlockStatement') {
+				// Estamos dentro de una estructura, saltar
+				return true;
+			}
+			currentPath = currentPath.parentPath;
+		}
+		
+		return false;
 	}
 
-	function expression(path: any, replace?: null | undefined) {
-		if (replace == null) replace = path.node;
+	function createDebugCall(path: any, expression?: any) {
+		const lineNumber = path.node.loc.start.line;
+		const expr = expression || path.node;
+		
+		return t.callExpression(t.identifier('debug'), [
+			t.numericLiteral(lineNumber),
+			t.stringLiteral('log'), // método por defecto
+			expr
+		]);
+	}
 
-		if (path.parentPath.node.type != 'ExpressionStatement') return;
-		if (path.node.callee?.identifier == 'debug') return;
-
-
-		if (path.parentPath.parentPath?.node?.type == 'WhileStatement') return;
-		if (path.parentPath.parentPath?.node?.type == 'ForStatement') return;
-
-		if (path.node.loc?.start == null) return;
-
-		path.replaceWith(
-			t.callExpression(t.identifier('debug'), [t.numericLiteral(path.node.loc.start.line), replace])
-		)
-
+	function replaceWithDebug(path: any, expression?: any) {
+		if (shouldSkipExpression(path)) return;
+		
+		const debugCall = createDebugCall(path, expression);
+		path.replaceWith(debugCall);
 	}
 
 	return {
 		visitor: {
-			ConditionalExpression(path) {
-				if (path.parentPath.type == 'ExpressionStatement') return
-				if (path.parentPath.type == 'VariableDeclarator') return
-				if (path.parentPath.type == 'AssignmentExpression') return
-				if (path.parentPath.type == 'BlockStatement') return
-				if (path.parentPath.type == 'FunctionExpression') return
-				if (path.parentPath.type == 'ArrowFunctionExpression') return
-				expression(path);
-				visit(path);
-			},
-			BinaryExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			UnaryExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			CallExpression(path) {
-				if (path.node.callee['object'] && path.node.callee['object'].name == 'console') return;
-				expression(path);
-				visit(path);
-			},
-			AwaitExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			NewExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			DirectiveLiteral(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				if (!path.node?.value) return;
-				if (!path.node.loc?.start?.line) return;
-				path.parentPath.replaceWith(
-					t.callExpression(t.identifier('debug'), [
-						t.numericLiteral(path.node.loc.start.line),
-						t.stringLiteral(path.node.value)
-					])
-				);
-			},
-			Identifier(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				if (path.node.name === 'Math') {
-
-
+			// Capturar SOLO expresiones independientes en el nivel superior
+			ExpressionStatement(path) {
+				// Solo procesar si es realmente independiente y en nivel superior
+				if (path.parentPath?.node?.type !== 'Program') return;
+				
+				// Saltar si es una declaración de función o clase
+				if (path.node.expression?.type === 'FunctionExpression' ||
+				    path.node.expression?.type === 'ClassExpression') return;
+				
+				// Saltar si es console.log (ya manejado por log-babel)
+				if (path.node.expression?.type === 'CallExpression' &&
+				    path.node.expression.callee?.type === 'MemberExpression' &&
+				    'name' in path.node.expression.callee.object &&
+				    path.node.expression.callee.object?.name === 'console') return;
+				
+				// Saltar si ya es una llamada debug
+				if (path.node.expression?.type === 'CallExpression' &&
+				    'name' in path.node.expression.callee &&
+				    path.node.expression.callee?.name === 'debug') return;
+				
+				// Solo transformar expresiones simples que estén sueltas
+				const expr = path.node.expression;
+				if (expr && path.node.loc?.start?.line) {
+					const debugCall = createDebugCall(path, expr);
+					path.replaceWith(t.expressionStatement(debugCall));
 				}
-
-				expression(path);
-				visit(path);
-			},
-			ArrayExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			MemberExpression(path) {
-				if (path.parentPath.type == 'VariableDeclarator') return
-				expression(path);
-				visit(path);
-			},
-			Literal(path) {
-				if (path.parentPath.type === 'VariableDeclarator') return
-				if (path.type == 'TemplateLiteral') return;
-				expression(path);
-				visit(path);
 			}
 		}
 	};
