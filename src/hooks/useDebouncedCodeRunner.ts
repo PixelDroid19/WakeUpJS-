@@ -177,7 +177,7 @@ export const useDebouncedCodeRunner = ({
     previousCodeLengthRef.current = lastCodeRef.current.length;
     
     // Si el código se vació completamente, limpiar resultados inmediatamente
-    if (isCleared) {
+    if (isCleared || code.trim() === '') {
       // Limpiar timeouts anteriores
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
@@ -208,6 +208,12 @@ export const useDebouncedCodeRunner = ({
         });
       }, 500);
       
+      return;
+    }
+    
+    // No ejecutar si el código está vacío (previene ejecuciones innecesarias)
+    if (code.trim() === '') {
+      console.log('📄 Código vacío, no ejecutando');
       return;
     }
     

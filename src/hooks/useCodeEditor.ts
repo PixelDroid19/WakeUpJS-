@@ -45,6 +45,7 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
       return;
     }
     
+    // Código con contenido real - ejecutar normalmente
     setIsRunning(true);
     setIsTransforming(true);
     clearError();
@@ -78,7 +79,10 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
         }
         
         onResult(element);
-        CodeLogger.log('info', 'Hook: Ejecución completada exitosamente', { resultCount: Array.isArray(element) ? element.length : 1 });
+        CodeLogger.log('info', 'Hook: Ejecución completada exitosamente', { 
+          resultCount: Array.isArray(element) ? element.length : 1,
+          isEmpty: code.trim() === '' 
+        });
       }
       
       // Actualizar código en contexto

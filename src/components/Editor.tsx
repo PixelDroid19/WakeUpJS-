@@ -88,7 +88,6 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const hasLoadedSessionRef = useRef(false);
 
   // Referencias adicionales para controlar ejecución automática
-  const isInitialLoadRef = useRef(true);
   const sessionJustLoadedRef = useRef(false);
 
   // Cargar sesión al montar el componente (solo una vez)
@@ -109,17 +108,13 @@ function EDITOR({ editorRef }: EditorProps = {}) {
         // Si no se cargó una sesión, también limpiar resultados
         setResult("");
       }
-      // Marcar que la carga inicial ha terminado
-      setTimeout(() => {
-        isInitialLoadRef.current = false;
-      }, 500);
     }
   }, [loadSession, isLoadingSession, setResult]);
 
   // Ejecutar código cuando cambie el archivo activo (pero no en carga inicial)
   useEffect(() => {
-    // No ejecutar en la carga inicial o si acabamos de cargar una sesión
-    if (isInitialLoadRef.current || sessionJustLoadedRef.current) {
+    // No ejecutar si acabamos de cargar una sesión (esperar eventos de usuario)
+    if (sessionJustLoadedRef.current) {
       // Solo restaurar posición del cursor sin ejecutar
       if (activeFile && editorInstanceRef.current && monacoInstanceRef.current) {
         const savedPosition = getCursorPosition(activeFile.id);
@@ -133,8 +128,9 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       return;
     }
 
-    // Solo ejecutar si hay contenido y no estamos en carga inicial
+    // Si hay contenido no vacío, ejecutarlo automáticamente
     if (activeFile?.content && activeFile.content.trim() !== "") {
+      console.log("🔄 Auto-ejecutando código existente");
       runCode(activeFile.content);
 
       // Restaurar posición del cursor
@@ -147,8 +143,12 @@ function EDITOR({ editorRef }: EditorProps = {}) {
           });
         }
       }
+    } else if (activeFile && activeFile.content.trim() === "") {
+      // Si hay un archivo activo pero está vacío, limpiar resultados
+      console.log("📄 Editor vacío, limpiando resultados");
+      setResult("");
     }
-  }, [activeFile?.id, getCursorPosition, runCode]); // Solo cuando cambie de archivo, no el contenido
+  }, [activeFile?.id, getCursorPosition, runCode, setResult]);
 
   // Actualizar autocompletado cuando cambien los paquetes instalados
   useEffect(() => {

@@ -24,7 +24,20 @@ console.log('Suma:', numeros.reduce((a, b) => a + b, 0));
 3. Los resultados deberían limpiarse inmediatamente
 4. Debería mostrar "🧹 Código eliminado, resultados limpiados"
 
-### 3. **NUEVO** - Inicio Limpio sin Auto-ejecución
+### 3. Ejecución Automática Condicional
+**Comportamiento esperado**: Si hay código en el editor al iniciarse, se ejecuta automáticamente. Si está vacío, no se ejecuta nada.
+
+**Cómo probar**:
+1. Asegúrate de tener código en el editor (ej: `console.log('Hola mundo')`)
+2. Cierra la aplicación
+3. Abre la aplicación nuevamente
+4. **Verificar**: El código se ejecuta automáticamente y muestra los resultados
+5. Ahora borra todo el código
+6. Cierra la aplicación
+7. Abre la aplicación nuevamente
+8. **Verificar**: NO se ejecuta nada y solo muestra "Resultados de Ejecución" sin contenido
+
+### 4. **NUEVO** - Inicio Limpio sin Auto-ejecución
 **Comportamiento esperado**: Al abrir la aplicación por primera vez o después de borrar todo, NO debe ejecutarse automáticamente ni mostrar "Ejecutando...".
 
 **Cómo probar**:
@@ -34,7 +47,7 @@ console.log('Suma:', numeros.reduce((a, b) => a + b, 0));
 4. **NO** debería mostrar "Ejecutando..." ni resultados anteriores
 5. Debería mostrar solo "Resultados de Ejecución" sin contenido
 
-### 4. Estados Mejorados de Ejecución
+### 5. Estados Mejorados de Ejecución
 **Comportamiento esperado**: Mensajes más informativos según el tipo de cambio.
 
 **Estados que deberías ver**:
@@ -43,6 +56,7 @@ console.log('Suma:', numeros.reduce((a, b) => a + b, 0));
 - ⌨️ Para escritura activa
 - 🧹 Para código eliminado
 - ✅ Para ejecución exitosa
+- 🔄 Para auto-ejecución al iniciar
 
 ## 🧪 Códigos de Prueba
 
@@ -87,6 +101,8 @@ console.log(`Total del inventario: $${total}`);
 
 - [ ] El código se ejecuta automáticamente al pegarlo
 - [ ] Los resultados se limpian al borrar todo el código
+- [ ] **NUEVO**: Si hay código al iniciar, se ejecuta automáticamente
+- [ ] **NUEVO**: Si el editor está vacío al iniciar, NO se ejecuta nada
 - [ ] **NUEVO**: Al abrir la app NO se ejecuta automáticamente el código por defecto
 - [ ] **NUEVO**: Al abrir la app NO muestra "Ejecutando..." sin razón
 - [ ] **NUEVO**: Los resultados empiezan vacíos al inicio limpio
@@ -103,12 +119,18 @@ console.log(`Total del inventario: $${total}`);
 3. Abre la aplicación
 4. **Verificar**: No hay "Ejecutando...", no hay resultados de "Hola mundo"
 
-### Restauración de Sesión Real
+### Restauración de Sesión con Código
 1. Escribe código personalizado (no "Hola mundo")
 2. Cierra la aplicación
 3. Abre la aplicación
-4. **Verificar**: Se restaura el código pero NO se ejecuta automáticamente
-5. **Verificar**: Los resultados están vacíos hasta que hagas un cambio
+4. **Verificar**: Se restaura el código Y se ejecuta automáticamente
+5. **Verificar**: Los resultados muestran la ejecución del código restaurado
+
+### Restauración de Sesión sin Código
+1. Borra todo el código del editor
+2. Cierra la aplicación
+3. Abre la aplicación
+4. **Verificar**: No se muestra "Ejecutando..." y los resultados están vacíos
 
 ## 🐛 Si Algo No Funciona
 
@@ -116,4 +138,5 @@ console.log(`Total del inventario: $${total}`);
 2. Busca mensajes de logging que indiquen el estado
 3. Verifica que no haya errores de TypeScript en la consola
 4. Prueba refrescar la página si el comportamiento es inconsistente
-5. **NUEVO**: Verifica si hay mensajes sobre "sesión por defecto" o "inicio limpio" 
+5. **NUEVO**: Verifica si hay mensajes sobre "sesión por defecto" o "inicio limpio"
+6. **NUEVO**: Verifica mensajes sobre "Auto-ejecutando código existente" 
