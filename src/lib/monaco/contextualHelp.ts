@@ -1,73 +1,101 @@
-import { languages, editor, Position, CancellationToken } from 'monaco-editor';
-import { getPackageDefinition, getPackageExports, PACKAGE_DEFINITIONS } from './packageDefinitions';
+import { languages, editor, Range } from "monaco-editor";
+import {
+  getPackageDefinition,
+  PACKAGE_DEFINITIONS,
+} from "./packageDefinitions";
 
 // Definiciones para objetos JavaScript nativos
 const NATIVE_OBJECTS: Record<string, any> = {
-  'Math': {
-    description: 'An intrinsic object that provides basic mathematics functionality and constants.',
-    signature: 'var Math: Math',
-    documentation: 'The Math object provides mathematical constants and functions. Unlike other global objects, Math is not a constructor.'
+  Math: {
+    description:
+      "An intrinsic object that provides basic mathematics functionality and constants.",
+    signature: "var Math: Math",
+    documentation:
+      "The Math object provides mathematical constants and functions. Unlike other global objects, Math is not a constructor.",
   },
-  'console': {
-    description: 'Provides access to the browser\'s debugging console.',
-    signature: 'var console: Console',
-    documentation: 'The console object provides access to the browser\'s debugging console, enabling you to output information and debug your code.'
+  console: {
+    description: "Provides access to the browser's debugging console.",
+    signature: "var console: Console",
+    documentation:
+      "The console object provides access to the browser's debugging console, enabling you to output information and debug your code.",
   },
-  'window': {
-    description: 'The global window object represents the browser window.',
-    signature: 'var window: Window',
-    documentation: 'The Window interface represents a window containing a DOM document.'
+  window: {
+    description: "The global window object represents the browser window.",
+    signature: "var window: Window",
+    documentation:
+      "The Window interface represents a window containing a DOM document.",
   },
-  'document': {
-    description: 'The Document interface represents any web page loaded in the browser.',
-    signature: 'var document: Document',
-    documentation: 'The Document interface represents the entire HTML or XML document.'
+  document: {
+    description:
+      "The Document interface represents any web page loaded in the browser.",
+    signature: "var document: Document",
+    documentation:
+      "The Document interface represents the entire HTML or XML document.",
   },
-  'Array': {
-    description: 'The Array object is used to store multiple values in a single variable.',
-    signature: 'var Array: ArrayConstructor',
-    documentation: 'The Array object is used to store multiple values in a single variable.'
+  Array: {
+    description:
+      "The Array object is used to store multiple values in a single variable.",
+    signature: "var Array: ArrayConstructor",
+    documentation:
+      "The Array object is used to store multiple values in a single variable.",
   },
-  'Object': {
-    description: 'The Object constructor creates an object wrapper.',
-    signature: 'var Object: ObjectConstructor',
-    documentation: 'The Object constructor creates an object wrapper for the given value.'
+  Object: {
+    description: "The Object constructor creates an object wrapper.",
+    signature: "var Object: ObjectConstructor",
+    documentation:
+      "The Object constructor creates an object wrapper for the given value.",
   },
-  'String': {
-    description: 'The String object is used to represent and manipulate a sequence of characters.',
-    signature: 'var String: StringConstructor',
-    documentation: 'The String object is used to represent and manipulate a sequence of characters.'
+  String: {
+    description:
+      "The String object is used to represent and manipulate a sequence of characters.",
+    signature: "var String: StringConstructor",
+    documentation:
+      "The String object is used to represent and manipulate a sequence of characters.",
   },
-  'Number': {
-    description: 'The Number object is a wrapper object allowing you to work with numerical values.',
-    signature: 'var Number: NumberConstructor',
-    documentation: 'The Number JavaScript object is a wrapper object allowing you to work with numerical values.'
+  Number: {
+    description:
+      "The Number object is a wrapper object allowing you to work with numerical values.",
+    signature: "var Number: NumberConstructor",
+    documentation:
+      "The Number JavaScript object is a wrapper object allowing you to work with numerical values.",
   },
-  'Date': {
-    description: 'The Date object represents a single moment in time in a platform-independent format.',
-    signature: 'var Date: DateConstructor',
-    documentation: 'JavaScript Date objects represent a single moment in time in a platform-independent format.'
+  Date: {
+    description:
+      "The Date object represents a single moment in time in a platform-independent format.",
+    signature: "var Date: DateConstructor",
+    documentation:
+      "JavaScript Date objects represent a single moment in time in a platform-independent format.",
   },
-  'JSON': {
-    description: 'An intrinsic object that provides functions to convert JavaScript values to and from JSON.',
-    signature: 'var JSON: JSON',
-    documentation: 'The JSON object contains methods for parsing JSON and converting values to JSON.'
+  JSON: {
+    description:
+      "An intrinsic object that provides functions to convert JavaScript values to and from JSON.",
+    signature: "var JSON: JSON",
+    documentation:
+      "The JSON object contains methods for parsing JSON and converting values to JSON.",
   },
-  'Promise': {
-    description: 'The Promise object represents the eventual completion (or failure) of an asynchronous operation.',
-    signature: 'var Promise: PromiseConstructor',
-    documentation: 'The Promise object represents the eventual completion (or failure) of an asynchronous operation and its resulting value.'
+  Promise: {
+    description:
+      "The Promise object represents the eventual completion (or failure) of an asynchronous operation.",
+    signature: "var Promise: PromiseConstructor",
+    documentation:
+      "The Promise object represents the eventual completion (or failure) of an asynchronous operation and its resulting value.",
   },
-  'setTimeout': {
-    description: 'Sets a timer which executes a function once the timer expires.',
-    signature: 'function setTimeout(handler: Function, timeout?: number): number',
-    documentation: 'The global setTimeout() method sets a timer which executes a function or specified piece of code once the timer expires.'
+  setTimeout: {
+    description:
+      "Sets a timer which executes a function once the timer expires.",
+    signature:
+      "function setTimeout(handler: Function, timeout?: number): number",
+    documentation:
+      "The global setTimeout() method sets a timer which executes a function or specified piece of code once the timer expires.",
   },
-  'setInterval': {
-    description: 'Repeatedly calls a function, with a fixed time delay between each call.',
-    signature: 'function setInterval(handler: Function, timeout?: number): number',
-    documentation: 'The setInterval() method repeatedly calls a function or executes a code snippet, with a fixed time delay between each call.'
-  }
+  setInterval: {
+    description:
+      "Repeatedly calls a function, with a fixed time delay between each call.",
+    signature:
+      "function setInterval(handler: Function, timeout?: number): number",
+    documentation:
+      "The setInterval() method repeatedly calls a function or executes a code snippet, with a fixed time delay between each call.",
+  },
 };
 
 // Cache para hover information
@@ -75,8 +103,8 @@ const hoverCache = new Map<string, any>();
 
 // Función para obtener información contextual de una palabra
 function getContextualInfo(word: string, context?: string): any {
-  const cacheKey = `${word}:${context || 'default'}`;
-  
+  const cacheKey = `${word}:${context || "default"}`;
+
   if (hoverCache.has(cacheKey)) {
     return hoverCache.get(cacheKey);
   }
@@ -87,7 +115,7 @@ function getContextualInfo(word: string, context?: string): any {
   if (NATIVE_OBJECTS[word]) {
     info = NATIVE_OBJECTS[word];
   }
-  
+
   // 2. Verificar en paquetes definidos
   else {
     const packageDef = getPackageDefinition(word);
@@ -95,19 +123,26 @@ function getContextualInfo(word: string, context?: string): any {
       info = {
         description: packageDef.description,
         signature: `module ${word}`,
-        documentation: `Package: ${packageDef.name}@${packageDef.version}\n${packageDef.description}`
+        documentation: `Package: ${packageDef.name}@${packageDef.version}\n${packageDef.description}`,
       };
     }
-    
+
     // 3. Verificar exports específicos de paquetes
     else {
-      for (const [packageName, definition] of Object.entries(PACKAGE_DEFINITIONS)) {
-        const exportDef = definition.exports.find(exp => exp.name === word);
+      for (const [packageName, definition] of Object.entries(
+        PACKAGE_DEFINITIONS
+      )) {
+        const exportDef = definition.exports.find((exp) => exp.name === word);
         if (exportDef) {
           info = {
             description: exportDef.description,
-            signature: exportDef.signature ? `${exportDef.type} ${word}${exportDef.signature.replace(/^[^(]*/, '')}` : `${exportDef.type} ${word}`,
-            documentation: `From package: ${packageName}\n${exportDef.description}`
+            signature: exportDef.signature
+              ? `${exportDef.type} ${word}${exportDef.signature.replace(
+                  /^[^(]*/,
+                  ""
+                )}`
+              : `${exportDef.type} ${word}`,
+            documentation: `From package: ${packageName}\n${exportDef.description}`,
           };
           break;
         }
@@ -118,17 +153,21 @@ function getContextualInfo(word: string, context?: string): any {
   // 4. Fallback para variables/funciones personalizadas
   if (!info && context) {
     // Intentar detectar el tipo basado en el contexto
-    if (context.includes('function')) {
+    if (context.includes("function")) {
       info = {
         description: `User-defined function: ${word}`,
         signature: `function ${word}(...args: any[]): any`,
-        documentation: `Custom function defined in your code.`
+        documentation: `Custom function defined in your code.`,
       };
-    } else if (context.includes('const') || context.includes('let') || context.includes('var')) {
+    } else if (
+      context.includes("const") ||
+      context.includes("let") ||
+      context.includes("var")
+    ) {
       info = {
         description: `User-defined variable: ${word}`,
         signature: `var ${word}: any`,
-        documentation: `Variable defined in your code.`
+        documentation: `Variable defined in your code.`,
       };
     }
   }
@@ -143,7 +182,8 @@ function getContextualInfo(word: string, context?: string): any {
 // Función para obtener el contexto de una línea
 function getLineContext(model: editor.ITextModel, lineNumber: number): string {
   const lineContent = model.getLineContent(lineNumber);
-  const prevLineContent = lineNumber > 1 ? model.getLineContent(lineNumber - 1) : '';
+  const prevLineContent =
+    lineNumber > 1 ? model.getLineContent(lineNumber - 1) : "";
   return `${prevLineContent} ${lineContent}`.trim();
 }
 
@@ -166,20 +206,19 @@ export function createHoverProvider(): languages.HoverProvider {
         };
 
         return {
-          range: new (model.constructor as any).Range(
+          range: new Range(
             position.lineNumber,
             word.startColumn,
             position.lineNumber,
             word.endColumn
           ),
-          contents: [hoverContent]
+          contents: [hoverContent],
         };
-
       } catch (error) {
-        console.warn('Error en hover provider:', error);
+        console.warn("Error en hover provider:", error);
         return null;
       }
-    }
+    },
   };
 }
 
@@ -206,25 +245,25 @@ export function createDefinitionProvider(): languages.DefinitionProvider {
 
         return null;
       } catch (error) {
-        console.warn('Error en definition provider:', error);
+        console.warn("Error en definition provider:", error);
         return null;
       }
-    }
+    },
   };
 }
 
 // Provider de firma de ayuda para funciones
 export function createSignatureHelpProvider(): languages.SignatureHelpProvider {
   return {
-    signatureHelpTriggerCharacters: ['(', ','],
-    signatureHelpRetriggerCharacters: [')'],
-    
+    signatureHelpTriggerCharacters: ["(", ","],
+    signatureHelpRetriggerCharacters: [")"],
+
     provideSignatureHelp: (model, position, token, context) => {
       try {
         // Buscar la función en la línea actual
         const lineContent = model.getLineContent(position.lineNumber);
         const beforeCursor = lineContent.substring(0, position.column - 1);
-        
+
         // Buscar el último identificador seguido de (
         const functionMatch = beforeCursor.match(/(\w+)\s*\([^)]*$/);
         if (!functionMatch) return null;
@@ -236,22 +275,23 @@ export function createSignatureHelpProvider(): languages.SignatureHelpProvider {
 
         return {
           value: {
-            signatures: [{
-              label: info.signature,
-              documentation: info.description,
-              parameters: [] // Se podrían extraer de la signatura
-            }],
+            signatures: [
+              {
+                label: info.signature,
+                documentation: info.description,
+                parameters: [], // Se podrían extraer de la signatura
+              },
+            ],
             activeSignature: 0,
-            activeParameter: 0
+            activeParameter: 0,
           },
-          dispose: () => {}
+          dispose: () => {},
         };
-
       } catch (error) {
-        console.warn('Error en signature help provider:', error);
+        console.warn("Error en signature help provider:", error);
         return null;
       }
-    }
+    },
   };
 }
 
@@ -260,38 +300,40 @@ export function setupContextualHelp(monaco: any): () => void {
   try {
     // Registrar hover provider para JavaScript y TypeScript
     const jsHoverDisposable = monaco.languages.registerHoverProvider(
-      'javascript',
+      "javascript",
       createHoverProvider()
     );
-    
+
     const tsHoverDisposable = monaco.languages.registerHoverProvider(
-      'typescript',
+      "typescript",
       createHoverProvider()
     );
 
     // Registrar definition provider
     const jsDefinitionDisposable = monaco.languages.registerDefinitionProvider(
-      'javascript',
+      "javascript",
       createDefinitionProvider()
     );
-    
+
     const tsDefinitionDisposable = monaco.languages.registerDefinitionProvider(
-      'typescript',
+      "typescript",
       createDefinitionProvider()
     );
 
     // Registrar signature help provider
-    const jsSignatureDisposable = monaco.languages.registerSignatureHelpProvider(
-      'javascript',
-      createSignatureHelpProvider()
-    );
-    
-    const tsSignatureDisposable = monaco.languages.registerSignatureHelpProvider(
-      'typescript',
-      createSignatureHelpProvider()
-    );
+    const jsSignatureDisposable =
+      monaco.languages.registerSignatureHelpProvider(
+        "javascript",
+        createSignatureHelpProvider()
+      );
 
-    console.log('🔍 Sistema de ayuda contextual configurado');
+    const tsSignatureDisposable =
+      monaco.languages.registerSignatureHelpProvider(
+        "typescript",
+        createSignatureHelpProvider()
+      );
+
+    console.log("🔍 Sistema de ayuda contextual configurado");
 
     // Función de limpieza
     return () => {
@@ -303,9 +345,8 @@ export function setupContextualHelp(monaco: any): () => void {
       tsSignatureDisposable.dispose();
       hoverCache.clear();
     };
-
   } catch (error) {
-    console.error('Error configurando ayuda contextual:', error);
+    console.error("Error configurando ayuda contextual:", error);
     return () => {};
   }
 }
@@ -318,4 +359,4 @@ export function addCustomDefinition(word: string, definition: any): void {
 // Función para limpiar cache
 export function clearHoverCache(): void {
   hoverCache.clear();
-} 
+}

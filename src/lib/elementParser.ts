@@ -16,9 +16,8 @@ export enum Colors {
   CYAN = "#00ffff",
   YELLOW = "#ffff00",
   MAGENTA = "#ff00ff",
-  GREEN = "#008000"
+  GREEN = "#008000",
 }
-
 
 export type ColoredElement = RecursiveColoredElement | StringColoredElement;
 
@@ -31,6 +30,907 @@ export interface StringColoredElement {
   content: string;
   color?: Colors;
 }
+
+// ============================================
+// CONFIGURACIÓN
+// ============================================
+
+interface SecurityConfig {
+  maxIterations: number;
+  maxDepth: number;
+  timeoutMs: number;
+  maxStringLength: number;
+  allowedPrototypeMethods: string[];
+  blacklistedProperties: string[];
+}
+
+interface FormatterConfig {
+  maxEntries: number;
+  maxMethods: number;
+  maxProperties: number;
+  truncateAfter: number;
+}
+
+class ElementParserConfig {
+  static readonly SECURITY: SecurityConfig = {
+    maxIterations: 1000,
+    maxDepth: 10,
+    timeoutMs: 100, // 100ms max per operation
+    maxStringLength: 10000,
+    allowedPrototypeMethods: [
+      "valueOf",
+      "toString",
+      "hasOwnProperty",
+      "isPrototypeOf",
+      "propertyIsEnumerable",
+      "toLocaleString",
+    ],
+    blacklistedProperties: [
+      "__proto__",
+      "constructor",
+      "prototype",
+      "__defineGetter__",
+      "__defineSetter__",
+      "__lookupGetter__",
+      "__lookupSetter__",
+    ],
+  };
+
+  static readonly FORMATTER: FormatterConfig = {
+    maxEntries: 10,
+    maxMethods: 8,
+    maxProperties: 5,
+    truncateAfter: 500,
+  };
+}
+
+// ============================================
+// SISTEMA DE VALIDACIÓN Y SEGURIDAD
+// ============================================
+
+class SecurityValidator {
+  /**
+   * Valida que un objeto sea seguro para introspección
+   */
+  static validateObject(obj: any): boolean {
+    if (obj === null || obj === undefined) return false;
+
+    // Verificar que no sea un objeto malicioso
+    if (typeof obj !== "object" && typeof obj !== "function") return false;
+
+    // Verificar que tenga un prototipo válido
+    try {
+      const proto = Object.getPrototypeOf(obj);
+      if (proto === null) return true; // Objects sin prototipo son seguros
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Sanitiza nombres de propiedades para evitar prototype pollution
+   */
+  static sanitizePropertyName(prop: string): boolean {
+    const blacklisted = ElementParserConfig.SECURITY.blacklistedProperties;
+    return !blacklisted.includes(prop.toLowerCase());
+  }
+
+  /**
+   * Valida que una operación no exceda límites de tiempo
+   */
+  static withTimeout<T>(operation: () => T, timeoutMs: number): T | null {
+    const startTime = performance.now();
+
+    try {
+      const result = operation();
+
+      // Verificar tiempo transcurrido
+      if (performance.now() - startTime > timeoutMs) {
+        console.warn("[SecurityValidator] Operation timed out");
+        return null;
+      }
+
+      return result;
+    } catch (error) {
+      console.warn("[SecurityValidator] Operation failed:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Trunca strings largos para evitar memory exhaustion
+   */
+  static truncateString(
+    str: string,
+    maxLength: number = ElementParserConfig.SECURITY.maxStringLength
+  ): string {
+    if (str.length <= maxLength) return str;
+    return str.substring(0, maxLength) + "... [truncated]";
+  }
+}
+
+// ============================================
+// MANEJO ROBUSTO DE ERRORES
+// ============================================
+
+class FormatterError extends Error {
+  constructor(
+    message: string,
+    public readonly operation: string,
+    public readonly originalError?: Error
+  ) {
+    super(message);
+    this.name = "FormatterError";
+  }
+}
+
+class ErrorBoundary {
+  static safeExecute<T>(operation: () => T, fallback: T, context: string): T {
+    try {
+      return (
+        SecurityValidator.withTimeout(
+          operation,
+          ElementParserConfig.SECURITY.timeoutMs
+        ) ?? fallback
+      );
+    } catch (error) {
+      console.warn(`[ErrorBoundary] ${context} failed:`, error);
+      return fallback;
+    }
+  }
+
+  static safePropertyAccess<T>(obj: any, prop: string, fallback: T): T {
+    try {
+      if (!SecurityValidator.sanitizePropertyName(prop)) {
+        return fallback;
+      }
+
+      const descriptor = Object.getOwnPropertyDescriptor(obj, prop);
+      if (!descriptor) return fallback;
+
+      return obj[prop] ?? fallback;
+    } catch (error) {
+      return fallback;
+    }
+  }
+}
+
+// ============================================
+// INTROSPECCIÓN
+// ============================================
+
+interface IntrospectionResult {
+  properties: Array<{ name: string; type: string; safe: boolean }>;
+  methods: Array<{ name: string; safe: boolean }>;
+  prototypeInfo: {
+    constructor: string;
+    methods: string[];
+    safeToShow: boolean;
+  };
+  metadata: {
+    isSecure: boolean;
+    truncated: boolean;
+    processingTime: number;
+  };
+}
+
+class SecureObjectIntrospector {
+  /**
+   * Realiza introspección segura de un objeto
+   */
+  static inspect(obj: any): IntrospectionResult {
+    const startTime = performance.now();
+
+    if (!SecurityValidator.validateObject(obj)) {
+      return this.createEmptyResult(performance.now() - startTime, false);
+    }
+
+    return ErrorBoundary.safeExecute(
+      () => {
+        const properties = this.getSecureProperties(obj);
+        const methods = this.getSecureMethods(obj);
+        const prototypeInfo = this.getSecurePrototypeInfo(obj);
+
+        const processingTime = performance.now() - startTime;
+
+        return {
+          properties,
+          methods,
+          prototypeInfo,
+          metadata: {
+            isSecure: true,
+            truncated:
+              properties.length >= ElementParserConfig.FORMATTER.maxProperties,
+            processingTime,
+          },
+        };
+      },
+      this.createEmptyResult(performance.now() - startTime, false),
+      "object introspection"
+    );
+  }
+
+  private static createEmptyResult(
+    processingTime: number,
+    isSecure: boolean
+  ): IntrospectionResult {
+    return {
+      properties: [],
+      methods: [],
+      prototypeInfo: {
+        constructor: "Unknown",
+        methods: [],
+        safeToShow: false,
+      },
+      metadata: {
+        isSecure,
+        truncated: false,
+        processingTime,
+      },
+    };
+  }
+
+  private static getSecureProperties(
+    obj: any
+  ): Array<{ name: string; type: string; safe: boolean }> {
+    const properties: Array<{ name: string; type: string; safe: boolean }> = [];
+
+    try {
+      const ownProps = Object.getOwnPropertyNames(obj);
+      let iterations = 0;
+
+      for (const prop of ownProps) {
+        if (iterations++ >= ElementParserConfig.SECURITY.maxIterations) break;
+
+        const isSafe = SecurityValidator.sanitizePropertyName(prop);
+        if (!isSafe) continue;
+
+        const value = ErrorBoundary.safePropertyAccess(obj, prop, undefined);
+        const type = typeof value;
+
+        if (type !== "function") {
+          properties.push({ name: prop, type, safe: isSafe });
+        }
+
+        if (properties.length >= ElementParserConfig.FORMATTER.maxProperties)
+          break;
+      }
+    } catch (error) {
+      console.warn(
+        "[SecureObjectIntrospector] Property inspection failed:",
+        error
+      );
+    }
+
+    return properties;
+  }
+
+  private static getSecureMethods(
+    obj: any
+  ): Array<{ name: string; safe: boolean }> {
+    const methods: Array<{ name: string; safe: boolean }> = [];
+
+    try {
+      const ownProps = Object.getOwnPropertyNames(obj);
+      let iterations = 0;
+
+      for (const prop of ownProps) {
+        if (iterations++ >= ElementParserConfig.SECURITY.maxIterations) break;
+
+        const isSafe = SecurityValidator.sanitizePropertyName(prop);
+        if (!isSafe) continue;
+
+        const value = ErrorBoundary.safePropertyAccess(obj, prop, undefined);
+
+        if (typeof value === "function") {
+          methods.push({ name: prop, safe: isSafe });
+        }
+
+        if (methods.length >= ElementParserConfig.FORMATTER.maxMethods) break;
+      }
+    } catch (error) {
+      console.warn(
+        "[SecureObjectIntrospector] Method inspection failed:",
+        error
+      );
+    }
+
+    return methods;
+  }
+
+  private static getSecurePrototypeInfo(
+    obj: any
+  ): IntrospectionResult["prototypeInfo"] {
+    try {
+      const prototype = Object.getPrototypeOf(obj);
+      if (!prototype || prototype === Object.prototype) {
+        return {
+          constructor: "Object",
+          methods: [],
+          safeToShow: false,
+        };
+      }
+
+      const constructor = ErrorBoundary.safePropertyAccess(
+        prototype,
+        "constructor",
+        null
+      );
+      const constructorName = (constructor as any)?.name || "Unknown";
+
+      const prototypeMethods: string[] = [];
+      const protoProps = Object.getOwnPropertyNames(prototype);
+
+      let iterations = 0;
+      for (const prop of protoProps) {
+        if (iterations++ >= ElementParserConfig.SECURITY.maxIterations) break;
+
+        if (prop === "constructor") continue;
+        if (!SecurityValidator.sanitizePropertyName(prop)) continue;
+
+        const value = ErrorBoundary.safePropertyAccess(
+          prototype,
+          prop,
+          undefined
+        );
+        if (typeof value === "function") {
+          prototypeMethods.push(prop);
+        }
+
+        if (prototypeMethods.length >= ElementParserConfig.FORMATTER.maxMethods)
+          break;
+      }
+
+      return {
+        constructor: constructorName,
+        methods: prototypeMethods,
+        safeToShow: true,
+      };
+    } catch (error) {
+      return {
+        constructor: "Unknown",
+        methods: [],
+        safeToShow: false,
+      };
+    }
+  }
+}
+
+// ============================================
+// FORMATTERS SEGUROS
+// ============================================
+
+// Función utilitaria mejorada para formatear valores
+function formatValueSafely(value: any): string {
+  try {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+
+    const type = typeof value;
+    switch (type) {
+      case "string":
+        return `'${SecurityValidator.truncateString(value, 50)}'`;
+      case "number":
+      case "boolean":
+        return String(value);
+      case "object":
+        return "[object]";
+      case "function":
+        return "[function]";
+      default:
+        return "[unknown]";
+    }
+  } catch (error) {
+    return "[error]";
+  }
+}
+
+class SecureTypeFormatters {
+  static formatMap(element: Map<any, any>): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        const mapSize = element.size;
+        let content = `Map(${mapSize})`;
+
+        if (mapSize === 0) {
+          content += " {}";
+        } else {
+          content += " {\n";
+          let entryCount = 0;
+          const maxEntries = ElementParserConfig.FORMATTER.maxEntries;
+
+          for (const [key, value] of element.entries()) {
+            if (entryCount >= maxEntries) {
+              content += `  ... ${mapSize - maxEntries} more entries\n`;
+              break;
+            }
+
+            const keyStr = formatValueSafely(key);
+            const valueStr = formatValueSafely(value);
+            content += `  ${keyStr} => ${valueStr},\n`;
+            entryCount++;
+          }
+
+          // Información del prototipo de forma segura
+          const introspection = SecureObjectIntrospector.inspect(element);
+          if (
+            introspection.metadata.isSecure &&
+            introspection.prototypeInfo.safeToShow
+          ) {
+            content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+            content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+
+            introspection.prototypeInfo.methods
+              .slice(0, 4)
+              .forEach((method) => {
+                content += `    ${method}: ƒ ${method}(),\n`;
+              });
+
+            if (introspection.prototypeInfo.methods.length > 4) {
+              content += `    ... ${
+                introspection.prototypeInfo.methods.length - 4
+              } more methods\n`;
+            }
+
+            content += `    size: ${mapSize}\n`;
+            content += "  }\n";
+          }
+
+          content += "}";
+        }
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Map { [inspection failed] }", color: Colors.GRAY },
+      "Map formatting"
+    );
+  }
+
+  static formatSet(element: Set<any>): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        const setSize = element.size;
+        let content = `Set(${setSize})`;
+
+        if (setSize === 0) {
+          content += " {}";
+        } else {
+          content += " {\n";
+          let entryCount = 0;
+          const maxEntries = ElementParserConfig.FORMATTER.maxEntries;
+
+          for (const value of element.values()) {
+            if (entryCount >= maxEntries) {
+              content += `  ... ${setSize - maxEntries} more entries\n`;
+              break;
+            }
+
+            const valueStr = formatValueSafely(value);
+            content += `  ${valueStr},\n`;
+            entryCount++;
+          }
+
+          const introspection = SecureObjectIntrospector.inspect(element);
+          if (
+            introspection.metadata.isSecure &&
+            introspection.prototypeInfo.safeToShow
+          ) {
+            content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+            content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+
+            introspection.prototypeInfo.methods
+              .slice(0, 4)
+              .forEach((method) => {
+                content += `    ${method}: ƒ ${method}(),\n`;
+              });
+
+            content += `    size: ${setSize}\n`;
+            content += "  }\n";
+          }
+
+          content += "}";
+        }
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Set { [inspection failed] }", color: Colors.GRAY },
+      "Set formatting"
+    );
+  }
+
+  static formatDate(element: Date): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        const dateStr = SecurityValidator.truncateString(
+          element.toString(),
+          100
+        );
+        const isoStr = SecurityValidator.truncateString(
+          element.toISOString(),
+          50
+        );
+        const timeValue = element.getTime();
+
+        let content = `Date {\n`;
+        content += `  toString: "${dateStr}",\n`;
+        content += `  toISOString: "${isoStr}",\n`;
+        content += `  getTime: ${timeValue},\n`;
+
+        const introspection = SecureObjectIntrospector.inspect(element);
+        if (
+          introspection.metadata.isSecure &&
+          introspection.prototypeInfo.safeToShow
+        ) {
+          content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+          content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+
+          introspection.prototypeInfo.methods.slice(0, 3).forEach((method) => {
+            content += `    ${method}: ƒ ${method}(),\n`;
+          });
+
+          content += "  }\n";
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Date { [inspection failed] }", color: Colors.GRAY },
+      "Date formatting"
+    );
+  }
+
+  static formatRegExp(element: RegExp): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        let content = `RegExp {\n`;
+        content += `  source: "${SecurityValidator.truncateString(
+          element.source,
+          100
+        )}",\n`;
+        content += `  flags: "${element.flags}",\n`;
+        content += `  global: ${element.global},\n`;
+        content += `  ignoreCase: ${element.ignoreCase},\n`;
+        content += `  multiline: ${element.multiline},\n`;
+
+        const introspection = SecureObjectIntrospector.inspect(element);
+        if (
+          introspection.metadata.isSecure &&
+          introspection.prototypeInfo.safeToShow
+        ) {
+          content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+          content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+
+          introspection.prototypeInfo.methods.slice(0, 3).forEach((method) => {
+            content += `    ${method}: ƒ ${method}(),\n`;
+          });
+
+          content += "  }\n";
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "RegExp { [inspection failed] }", color: Colors.GRAY },
+      "RegExp formatting"
+    );
+  }
+
+  static formatError(element: Error): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        let content = `${element.constructor.name} {\n`;
+        content += `  message: "${SecurityValidator.truncateString(
+          element.message,
+          200
+        )}",\n`;
+        content += `  name: "${element.name}",\n`;
+
+        if (element.stack) {
+          const stackLines = element.stack.split("\n").slice(0, 3);
+          const truncatedStack = stackLines
+            .map((line) => SecurityValidator.truncateString(line, 100))
+            .join("\\n");
+          content += `  stack: "${truncatedStack}...",\n`;
+        }
+
+        const introspection = SecureObjectIntrospector.inspect(element);
+        if (
+          introspection.metadata.isSecure &&
+          introspection.prototypeInfo.safeToShow
+        ) {
+          content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+          content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+          content += `    toString: ƒ toString()\n`;
+          content += "  }\n";
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Error { [inspection failed] }", color: Colors.GRAY },
+      "Error formatting"
+    );
+  }
+
+  static formatArrayBuffer(element: ArrayBuffer): {
+    content: string;
+    color: Colors;
+  } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        let content = `ArrayBuffer {\n`;
+        content += `  byteLength: ${element.byteLength},\n`;
+
+        const introspection = SecureObjectIntrospector.inspect(element);
+        if (
+          introspection.metadata.isSecure &&
+          introspection.prototypeInfo.safeToShow
+        ) {
+          content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+          content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}(),\n`;
+          content += `    slice: ƒ slice()\n`;
+          content += "  }\n";
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "ArrayBuffer { [inspection failed] }", color: Colors.GRAY },
+      "ArrayBuffer formatting"
+    );
+  }
+
+  static formatTypedArray(
+    element: any,
+    typeName: string
+  ): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        const length = Math.min(
+          element.length || 0,
+          ElementParserConfig.FORMATTER.maxEntries
+        );
+
+        let content = `${typeName} {\n`;
+        content += `  length: ${element.length},\n`;
+
+        if (element.buffer && element.buffer.byteLength !== undefined) {
+          content += `  buffer: ArrayBuffer { byteLength: ${element.buffer.byteLength} },\n`;
+        }
+
+        if (length > 0) {
+          content += `  values: [`;
+          for (let i = 0; i < length; i++) {
+            content += element[i];
+            if (i < length - 1) content += ", ";
+          }
+          if (element.length > length) {
+            content += `, ...${element.length - length} more`;
+          }
+          content += `],\n`;
+        }
+
+        const introspection = SecureObjectIntrospector.inspect(element);
+        if (
+          introspection.metadata.isSecure &&
+          introspection.prototypeInfo.safeToShow
+        ) {
+          content += `  [Prototype]: ${introspection.prototypeInfo.constructor}.prototype {\n`;
+          content += `    constructor: ƒ ${introspection.prototypeInfo.constructor}()\n`;
+          content += "  }\n";
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: `${typeName} { [inspection failed] }`, color: Colors.GRAY },
+      "TypedArray formatting"
+    );
+  }
+
+  static formatMath(): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        let content = "Math {\n";
+
+        const introspection = SecureObjectIntrospector.inspect(Math);
+
+        // Mostrar constantes matemáticas
+        const constants = introspection.properties
+          .filter((prop) => prop.type === "number")
+          .slice(0, 6);
+
+        constants.forEach((prop) => {
+          const value = ErrorBoundary.safePropertyAccess(
+            Math,
+            prop.name,
+            "unknown"
+          );
+          content += `  ${prop.name}: ${value},\n`;
+        });
+
+        // Mostrar métodos
+        const methods = introspection.methods.slice(0, 6);
+        methods.forEach((method) => {
+          content += `  ${method.name}: ƒ ${method.name}(),\n`;
+        });
+
+        if (introspection.methods.length > 6) {
+          content += `  ... ${introspection.methods.length - 6} more methods\n`;
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Math { [inspection failed] }", color: Colors.GRAY },
+      "Math formatting"
+    );
+  }
+
+  static formatConsole(): { content: string; color: Colors } {
+    return ErrorBoundary.safeExecute(
+      () => {
+        let content = "Console {\n";
+
+        const introspection = SecureObjectIntrospector.inspect(console);
+        const methods = introspection.methods.slice(0, 6);
+
+        methods.forEach((method) => {
+          content += `  ${method.name}: ƒ ${method.name}(),\n`;
+        });
+
+        if (introspection.methods.length > 6) {
+          content += `  ... ${introspection.methods.length - 6} more methods\n`;
+        }
+
+        content += "}";
+
+        return { content, color: Colors.GRAY };
+      },
+      { content: "Console { [inspection failed] }", color: Colors.GRAY },
+      "Console formatting"
+    );
+  }
+}
+
+// ============================================
+// SISTEMA DE DETECCIÓN DE TIPOS
+// ============================================
+
+/**
+ * Detector robusto de tipos JavaScript usando Object.prototype.toString.call()
+ * y verificaciones adicionales para maximum compatibilidad cross-browser
+ */
+class TypeDetector {
+  private static readonly TYPE_MAP = new Map([
+    ["[object Array]", "Array"],
+    ["[object Object]", "Object"],
+    ["[object Map]", "Map"],
+    ["[object Set]", "Set"],
+    ["[object WeakMap]", "WeakMap"],
+    ["[object WeakSet]", "WeakSet"],
+    ["[object Date]", "Date"],
+    ["[object RegExp]", "RegExp"],
+    ["[object Error]", "Error"],
+    ["[object Promise]", "Promise"],
+    ["[object ArrayBuffer]", "ArrayBuffer"],
+    ["[object DataView]", "DataView"],
+    ["[object Int8Array]", "Int8Array"],
+    ["[object Uint8Array]", "Uint8Array"],
+    ["[object Uint8ClampedArray]", "Uint8ClampedArray"],
+    ["[object Int16Array]", "Int16Array"],
+    ["[object Uint16Array]", "Uint16Array"],
+    ["[object Int32Array]", "Int32Array"],
+    ["[object Uint32Array]", "Uint32Array"],
+    ["[object Float32Array]", "Float32Array"],
+    ["[object Float64Array]", "Float64Array"],
+    ["[object BigInt64Array]", "BigInt64Array"],
+    ["[object BigUint64Array]", "BigUint64Array"],
+  ]);
+
+  static detect(element: any): string {
+    if (element === null) return "null";
+    if (element === undefined) return "undefined";
+
+    const primitiveType = typeof element;
+    if (primitiveType !== "object" && primitiveType !== "function") {
+      return primitiveType;
+    }
+
+    if (primitiveType === "function") return "function";
+
+    // Usar Object.prototype.toString.call() para detección robusta
+    const objectType = Object.prototype.toString.call(element);
+    const detectedType = this.TYPE_MAP.get(objectType);
+
+    if (detectedType) {
+      return detectedType;
+    }
+
+    // Detección especial para tipos custom o casos edge
+    if (element && element._isConsoleObject) return "ConsoleObject";
+    if (element && element._isMultipleArgs) return "MultipleArgs";
+    if (element === Math) return "Math";
+    if (element === console) return "Console";
+    if (typeof document !== "undefined" && element === document)
+      return "Document";
+
+    return "Object";
+  }
+}
+
+// ============================================
+// REGISTRO DE FORMATTERS
+// ============================================
+
+type FormatterFunction = (element: any) => { content: string; color: Colors };
+
+const TYPE_FORMATTER_REGISTRY = new Map<string, FormatterFunction>([
+  ["Map", SecureTypeFormatters.formatMap as FormatterFunction],
+  ["Set", SecureTypeFormatters.formatSet as FormatterFunction],
+  ["Date", SecureTypeFormatters.formatDate as FormatterFunction],
+  ["RegExp", SecureTypeFormatters.formatRegExp as FormatterFunction],
+  ["Error", SecureTypeFormatters.formatError as FormatterFunction],
+  ["ArrayBuffer", SecureTypeFormatters.formatArrayBuffer as FormatterFunction],
+  ["Math", SecureTypeFormatters.formatMath as FormatterFunction],
+  ["Console", SecureTypeFormatters.formatConsole as FormatterFunction],
+  // TypedArrays
+  [
+    "Int8Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Int8Array"),
+  ],
+  [
+    "Uint8Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Uint8Array"),
+  ],
+  [
+    "Uint8ClampedArray",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Uint8ClampedArray"),
+  ],
+  [
+    "Int16Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Int16Array"),
+  ],
+  [
+    "Uint16Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Uint16Array"),
+  ],
+  [
+    "Int32Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Int32Array"),
+  ],
+  [
+    "Uint32Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Uint32Array"),
+  ],
+  [
+    "Float32Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Float32Array"),
+  ],
+  [
+    "Float64Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "Float64Array"),
+  ],
+  [
+    "BigInt64Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "BigInt64Array"),
+  ],
+  [
+    "BigUint64Array",
+    (el: any) => SecureTypeFormatters.formatTypedArray(el, "BigUint64Array"),
+  ],
+]);
+
+// ============================================
+// UTILIDADES EXISTENTES
+// ============================================
 
 const isPromise = (promiseToCheck: Promise<any>) => {
   return (
@@ -62,101 +962,100 @@ export function flattenColoredElement(
     })
     .flat();
 }
+
+// ============================================
+// FUNCIÓN PRINCIPAL STRINGIFY REFACTORIZADA
+// ============================================
+
 export async function stringify(element: any): Promise<{
   content: string;
   color?: Colors;
 }> {
-  if (element === null) {
+  // Detección de tipos
+  const detectedType = TypeDetector.detect(element);
+
+  // Manejo de tipos primitivos
+  if (detectedType === "null") {
+    return { content: "null", color: Colors.GRAY };
+  }
+
+  if (detectedType === "undefined") {
+    return { content: "undefined", color: Colors.GRAY };
+  }
+
+  if (detectedType === "string") {
+    // Manejar referencias especiales del nuevo plugin de Babel
+    if (element.startsWith("ƒ ")) {
+      return { content: element, color: Colors.INFO };
+    }
+    return { content: JSON.stringify(element), color: Colors.STRING };
+  }
+
+  if (detectedType === "boolean") {
     return {
-      content: "null",
-      color: Colors.GRAY,
+      content: element.toString(),
+      color: element ? Colors.TRUE : Colors.FALSE,
     };
   }
 
-  if (element === undefined) {
-    return {
-      content: "undefined",
-      color: Colors.GRAY,
-    };
+  if (detectedType === "number") {
+    return { content: element.toString(), color: Colors.NUMBER };
   }
 
-  // Manejar referencias especiales del nuevo plugin de Babel
-  if (typeof element === 'string' && element.startsWith('ƒ ')) {
-    return {
-      content: element,
-      color: Colors.INFO,
-    };
+  if (detectedType === "bigint") {
+    return { content: `${element}n`, color: Colors.NUMBER };
   }
 
-  // Manejar objeto console especial
-  if (typeof element === 'object' && element !== null && element._isConsoleObject) {
+  if (detectedType === "symbol") {
+    const symbolDesc = await stringify(element.description);
+    return { content: `Symbol(${symbolDesc.content})`, color: Colors.GRAY };
+  }
+
+  if (detectedType === "function") {
+    const funcStr = element.toString();
+
+    if (funcStr.includes("[native code]")) {
+      const funcName = element.name || "function";
+      return { content: `ƒ ${funcName}()`, color: Colors.INFO };
+    }
+
+    const lines = funcStr.split("\n");
+    if (lines.length <= 3) {
+      return { content: funcStr, color: Colors.INFO };
+    } else {
+      const firstLine = lines[0];
+      return { content: `${firstLine} { ... }`, color: Colors.INFO };
+    }
+  }
+
+  // Manejo de tipos especiales (objetos custom de JSRunner)
+  if (detectedType === "ConsoleObject") {
     let content = "console {\n";
     element.methods.forEach((method: string) => {
       content += `  ${method}: ƒ ${method}(),\n`;
     });
-    // Agregar algunas propiedades útiles de console
     content += "  [native code]\n}";
-    
-    return {
-      content,
-      color: Colors.GRAY,
-    };
+    return { content, color: Colors.GRAY };
   }
 
-  // Manejar múltiples argumentos
-  if (typeof element === 'object' && element !== null && element._isMultipleArgs) {
+  if (detectedType === "MultipleArgs") {
     const stringifiedArgs = await Promise.all(
       element.args.map(async (arg: any) => {
         const result = await stringify(arg);
         return result.content;
       })
     );
-    
-    return {
-      content: stringifiedArgs.join(' '),
-      color: Colors.GRAY,
-    };
+    return { content: stringifiedArgs.join(" "), color: Colors.GRAY };
   }
 
-  if (typeof element == "string") {
-    return {
-      content: JSON.stringify(element),
-      color: Colors.STRING,
-    };
+  // Uso del registry de formatters para tipos built-in
+  const formatter = TYPE_FORMATTER_REGISTRY.get(detectedType);
+  if (formatter) {
+    return formatter(element);
   }
 
-  if (typeof element == "function") {
-    const funcStr = element.toString();
-    
-    // Si es una función nativa
-    if (funcStr.includes('[native code]')) {
-      // Extraer el nombre de la función si es posible
-      const funcName = element.name || 'function';
-      return {
-        content: `ƒ ${funcName}()`,
-        color: Colors.INFO,
-      };
-    }
-    
-    // Si es una función definida por el usuario
-    const lines = funcStr.split('\n');
-    if (lines.length <= 3) {
-      // Función corta, mostrar completa
-      return {
-        content: funcStr,
-        color: Colors.INFO,
-      };
-    } else {
-      // Función larga, mostrar solo la declaración
-      const firstLine = lines[0];
-      return {
-        content: `${firstLine} { ... }`,
-        color: Colors.INFO,
-      };
-    }
-  }
-
-  if (Array.isArray(element)) {
+  // Manejo especial de arrays
+  if (detectedType === "Array") {
     return {
       content: ObjetToString(jc.decycle(element), {
         indent: "  ",
@@ -165,74 +1064,53 @@ export async function stringify(element: any): Promise<{
       }),
     };
   }
-  
-  // Mejorar el manejo de promesas - FIX BUG: promises no-await
-  if (isPromise(element)) {
+
+  // Manejo de promesas
+  if (detectedType === "Promise" || isPromise(element)) {
     try {
-      // Para promesas de fetch y otras APIs asíncronas
-      if (element && typeof element.then === 'function') {
-        
-        // Usar un enfoque más robusto para promesas
-        let isResolved = false;
-        let resolvedValue: any = null;
-        let rejectedReason: any = null;
-        let isRejected = false;
-        
-        // Intentar resolver la promesa con un timeout más largo para fetch
-        const timeoutDuration = 5000; // 5 segundos para APIs
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('timeout')), timeoutDuration)
+      if (element && typeof element.then === "function") {
+        const timeoutDuration = 5000;
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), timeoutDuration)
         );
-        
+
         try {
-          // Intentar resolver la promesa
           const result = await Promise.race([element, timeoutPromise]);
-          
-          // Manejar diferentes tipos de respuestas
-          if (result && typeof result === 'object') {
-            // Si es una Response de fetch
-            if (result.constructor?.name === 'Response' || 
-                (result.status !== undefined && result.ok !== undefined)) {
+
+          if (result && typeof result === "object") {
+            if (
+              result.constructor?.name === "Response" ||
+              (result.status !== undefined && result.ok !== undefined)
+            ) {
               return {
                 content: `Response {\n  status: ${result.status},\n  ok: ${result.ok},\n  statusText: "${result.statusText}",\n  url: "${result.url}"\n}`,
                 color: Colors.INFO,
               };
             }
-            
-            // Si es un objeto JSON (datos de API)
+
             if (result.constructor === Object || Array.isArray(result)) {
               const jsonString = JSON.stringify(result, null, 2);
-              // Truncar si es muy largo
-              const truncatedJson = jsonString.length > 500 
-                ? jsonString.substring(0, 500) + '\n  ...\n}'
-                : jsonString;
-              
-              return {
-                content: truncatedJson,
-                color: Colors.STRING,
-              };
+              const truncatedJson =
+                jsonString.length > 500
+                  ? jsonString.substring(0, 500) + "\n  ...\n}"
+                  : jsonString;
+
+              return { content: truncatedJson, color: Colors.STRING };
             }
           }
-          
-          // Para otros tipos de resultados
+
           return {
             content: `Promise { <resolved: ${JSON.stringify(result)}> }`,
             color: Colors.STRING,
           };
-          
         } catch (error: any) {
-          if (error.message === 'timeout') {
-            return {
-              content: 'Promise { <pending> }',
-              color: Colors.STRING,
-            };
+          if (error.message === "timeout") {
+            return { content: "Promise { <pending> }", color: Colors.STRING };
           } else {
-            // Error real de la promesa
             const errorMsg = error.message || error.toString();
             return {
               content: `Promise { <rejected: ${errorMsg}> }`,
-              color: Colors.ERROR,
+              color: Colors.GRAY,
             };
           }
         }
@@ -240,126 +1118,31 @@ export async function stringify(element: any): Promise<{
     } catch (error: any) {
       return {
         content: `Promise { <error: ${error.message}> }`,
-        color: Colors.ERROR,
+        color: Colors.GRAY,
       };
     }
   }
 
-  if (element === true) {
-    return {
-      content: "true",
-      color: Colors.TRUE,
-    };
-  }
-
-  if (element === false) {
-    return {
-      content: "false",
-      color: Colors.FALSE,
-    };
-  }
-
-  if (typeof element == "number") {
-    return {
-      content: element.toString(),
-      color: Colors.NUMBER,
-    };
-  }
-
-  // Mejorar el manejo de objetos para mostrar métodos
-  if (typeof element == "object" && element !== null) {
+  // Manejo de objetos regulares con métodos
+  if (detectedType === "Object") {
     try {
-      // Para objetos especiales como Math
-      if (element === Math) {
-        const mathMethods = [
-          'abs', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'atan2',
-          'ceil', 'cbrt', 'clz32', 'cos', 'cosh', 'exp', 'expm1', 'floor',
-          'fround', 'hypot', 'imul', 'log', 'log1p', 'log2', 'log10',
-          'max', 'min', 'pow', 'random', 'round', 'sign', 'sin', 'sinh',
-          'sqrt', 'tan', 'tanh', 'trunc'
-        ];
-        
-        const mathConstants = [
-          'E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', 'SQRT2'
-        ];
-        
-        let content = "Math {\n";
-        
-        // Agregar constantes
-        mathConstants.forEach(constant => {
-          content += `  ${constant}: ${(Math as any)[constant]},\n`;
-        });
-        
-        // Agregar métodos
-        mathMethods.forEach(method => {
-          content += `  ${method}: f ${method}(),\n`;
-        });
-        
-        content += "}";
-        
-        return {
-          content,
-          color: Colors.GRAY,
-        };
-      }
-      
-      // Para objetos especiales como console, document, etc.
-      if (element === console) {
-        return {
-          content: "Object [console] {\n" + 
-            Object.getOwnPropertyNames(element)
-              .filter(prop => typeof element[prop] === 'function')
-              .map(prop => `  ${prop}: f ${prop}()`)
-              .join(',\n') + 
-            "\n}",
-          color: Colors.GRAY,
-        };
-      }
-      
-      if (element === document && typeof document !== 'undefined') {
-        const documentProps: string[] = [];
-        const proto = Object.getPrototypeOf(element);
-        
-        // Agregar algunas propiedades importantes del document
-        ['head', 'body', 'title', 'URL', 'domain', 'readyState'].forEach(prop => {
-          if (prop in element) {
-            const value = element[prop];
-            if (typeof value === 'function') {
-              documentProps.push(`  ${prop}: f ${prop}()`);
-            } else if (typeof value === 'object' && value !== null) {
-              documentProps.push(`  ${prop}: ${value.constructor?.name || 'Object'}`);
-            } else {
-              documentProps.push(`  ${prop}: ${JSON.stringify(value)}`);
-            }
-          }
-        });
-        
-        return {
-          content: "Document {\n" + documentProps.slice(0, 10).join(',\n') + 
-                   (documentProps.length > 10 ? ',\n  ...' : '') + "\n}",
-          color: Colors.GRAY,
-        };
-      }
-      
-      // Para objetos regulares, mostrar con información de métodos
       const obj = jc.decycle(element);
-      const hasOwnMethods = Object.getOwnPropertyNames(element).some(prop => 
-        typeof element[prop] === 'function'
+      const hasOwnMethods = Object.getOwnPropertyNames(element).some(
+        (prop) => typeof element[prop] === "function"
       );
-      
+
       if (hasOwnMethods) {
         const methods = Object.getOwnPropertyNames(element)
-          .filter(prop => typeof element[prop] === 'function')
-          .slice(0, 5); // Límite para evitar salidas muy largas
-          
-        const regularProps = Object.getOwnPropertyNames(element)
-          .filter(prop => typeof element[prop] !== 'function')
+          .filter((prop) => typeof element[prop] === "function")
           .slice(0, 5);
-        
+
+        const regularProps = Object.getOwnPropertyNames(element)
+          .filter((prop) => typeof element[prop] !== "function")
+          .slice(0, 5);
+
         let content = "{\n";
-        
-        // Agregar propiedades regulares
-        regularProps.forEach(prop => {
+
+        regularProps.forEach((prop) => {
           try {
             const value = element[prop];
             content += `  ${prop}: ${JSON.stringify(value)},\n`;
@@ -367,25 +1150,20 @@ export async function stringify(element: any): Promise<{
             content += `  ${prop}: [object],\n`;
           }
         });
-        
-        // Agregar métodos
-        methods.forEach(prop => {
-          content += `  ${prop}: f ${prop}(),\n`;
+
+        methods.forEach((prop) => {
+          content += `  ${prop}: ƒ ${prop}(),\n`;
         });
-        
+
         if (Object.getOwnPropertyNames(element).length > 10) {
           content += "  ...\n";
         }
-        
+
         content += "}";
-        
-        return {
-          content,
-          color: Colors.GRAY,
-        };
+
+        return { content, color: Colors.GRAY };
       }
-      
-      // Objeto regular sin métodos
+
       return {
         content: ObjetToString(obj, {
           indent: "  ",
@@ -395,30 +1173,10 @@ export async function stringify(element: any): Promise<{
         color: Colors.GRAY,
       };
     } catch (error) {
-      return {
-        content: "[object Object]",
-        color: Colors.GRAY,
-      };
+      return { content: "[object Object]", color: Colors.GRAY };
     }
   }
 
-  if (typeof element == "symbol") {
-    const symbolDesc = await stringify(element.description);
-    return {
-      content: `Symbol(${symbolDesc.content})`,
-      color: Colors.GRAY,
-    };
-  }
-
-  if (typeof element == "bigint") {
-    return {
-      content: `${element}n`,
-      color: Colors.NUMBER,
-    };
-  }
-
-  return {
-    content: element.toString(),
-    color: Colors.GRAY,
-  };
+  // Fallback para tipos no reconocidos
+  return { content: element.toString(), color: Colors.GRAY };
 }

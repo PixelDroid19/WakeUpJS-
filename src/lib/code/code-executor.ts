@@ -18,106 +18,73 @@ const createGlobalContext = (envVars?: Record<string, string>) => {
   return originalCreateGlobalContext();
 };
 
-// Configuración avanzada del ejecutor
+// Configuración simplificada del ejecutor
 const EXECUTOR_CONFIG = {
-  // Timeouts
-  BASE_TIMEOUT: EDITOR_CONFIG.EXECUTION_TIMEOUT || 10000,
-  MAX_TIMEOUT: 30000,
-  MINIMUM_STABLE_TIME: 2000,
-
-  // Monitoreo de recursos
-  MEMORY_LIMIT: 100 * 1024 * 1024, // 100MB
-
-  // Detección de actividad
-  REQUIRED_STABLE_CHECKS: 20,
+  // Timeout fijo más predecible
+  EXECUTION_TIMEOUT: EDITOR_CONFIG.EXECUTION_TIMEOUT || 10000,
+  
+  // Espera para operaciones asíncronas
+  ASYNC_WAIT_TIME: EDITOR_CONFIG.ASYNC_WAIT_TIME || 3000,
   CHECK_INTERVAL: 100, // ms
-  MAX_WAIT_TIME: EDITOR_CONFIG.ASYNC_WAIT_TIME || 5000,
-
-  // Cache
-  ENABLE_EXECUTION_CACHE: true,
-  MAX_CACHE_SIZE: 20,
+  
+  // Cache simple
+  ENABLE_CACHE: true,
+  MAX_CACHE_SIZE: 10,
+  CACHE_TTL: 30000, // 30 segundos
 };
 
-// Caché de ejecuciones recientes
-const executionCache = new Map<
-  string,
-  {
-    timestamp: number;
-    results: Result[];
-    hash: string;
-  }
->();
+// Caché simple de ejecuciones
+const executionCache = new Map<string, {
+  timestamp: number;
+  results: Result[];
+  jsxDetected?: boolean; // Añadir información sobre detección JSX
+}>();
 
 /**
  * Genera un hash simple para el código
  */
-const generateCodeHash = (
-  code: string,
-  envVars: Record<string, any> = {}
-): string => {
-  const envHash = Object.entries(envVars).sort().join("|");
-  return `${code.length}_${code
-    .split("")
-    .reduce((acc, char) => acc + char.charCodeAt(0), 0)}_${envHash}`;
+const generateCodeHash = (code: string): string => {
+  return `${code.length}_${code.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)}`;
 };
 
 /**
- * Estima la complejidad del código para determinar el timeout adaptativo
+ * Limpia el caché de ejecuciones (útil cuando cambia la detección JSX)
  */
-const estimateCodeComplexity = (code: string): number => {
-  const loops = (
-    code.match(/for|while|do\s+{|forEach|map|reduce|filter/g) || []
-  ).length;
-  const conditionals = (code.match(/if|switch|catch|ternary|\?.*:/g) || [])
-    .length;
-  const asyncOps = (
-    code.match(/await|setTimeout|setInterval|fetch|Promise|async/g) || []
-  ).length;
-  const recursion = (code.match(/function\s*(\w+)[\s\S]*?\1\s*\(/g) || [])
-    .length;
-
-  return 1 + loops * 1.5 + conditionals + asyncOps * 2 + recursion * 3;
+export const clearExecutionCache = (): void => {
+  executionCache.clear();
+  CodeLogger.log("info", "Cache de ejecuciones limpiado");
 };
 
 /**
- * Calcula un timeout adaptativo basado en la complejidad del código
+ * Fuerza una nueva ejecución invalidando cualquier cache existente
  */
-const calculateAdaptiveTimeout = (code: string): number => {
-  const complexity = estimateCodeComplexity(code);
-  const adaptiveTimeout =
-    EXECUTOR_CONFIG.BASE_TIMEOUT * Math.log10(1 + complexity);
-  return Math.min(
-    Math.max(EXECUTOR_CONFIG.BASE_TIMEOUT, adaptiveTimeout),
-    EXECUTOR_CONFIG.MAX_TIMEOUT
-  );
+export const forceNewExecution = (code: string): void => {
+  const codeHash = generateCodeHash(code);
+  executionCache.delete(codeHash);
+  CodeLogger.log("info", "Cache invalidado para forzar nueva ejecución", { codeHash });
 };
 
 /**
- * Monitor de recursos para el ejecutor de código
+ * Monitor de recursos simplificado
  */
-class ResourceMonitor {
-  private startTime: number;
-  private checkpoints: { time: number; operation: string }[] = [];
+class SimpleResourceMonitor {
   private abortController: AbortController;
+  private startTime: number;
 
-  constructor(timeoutMs: number, abortSignal?: AbortSignal) {
+  constructor(timeoutMs: number, externalSignal?: AbortSignal) {
     this.startTime = performance.now();
     this.abortController = new AbortController();
 
-    // Configurar timeout
+    // Configurar timeout fijo
     const timeoutId = setTimeout(() => {
       this.abortController.abort(
-        new Error(
-          `Execution timeout: El código tardó demasiado en ejecutarse (límite: ${
-            timeoutMs / 1000
-          } segundos)`
-        ) as any
+        new Error(`Timeout: El código tardó más de ${timeoutMs / 1000} segundos en ejecutarse`) as any
       );
     }, timeoutMs);
 
     // Limpiar timeout si se aborta externamente
-    if (abortSignal) {
-      abortSignal.addEventListener("abort", () => {
+    if (externalSignal) {
+      externalSignal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         this.abortController.abort(
           new Error("Ejecución cancelada por el usuario") as any
@@ -131,25 +98,8 @@ class ResourceMonitor {
     });
   }
 
-  checkpoint(operation: string): void {
-    this.checkpoints.push({
-      time: performance.now() - this.startTime,
-      operation,
-    });
-  }
-
   getElapsedTime(): number {
     return performance.now() - this.startTime;
-  }
-
-  getStats(): {
-    executionTime: number;
-    checkpoints: { time: number; operation: string }[];
-  } {
-    return {
-      executionTime: this.getElapsedTime(),
-      checkpoints: this.checkpoints,
-    };
   }
 
   get signal(): AbortSignal {
@@ -162,6 +112,27 @@ class ResourceMonitor {
     } else {
       this.abortController.abort();
     }
+  }
+}
+
+/**
+ * Monitor mejorado para recursos con detección inteligente
+ */
+class EnhancedResourceMonitor extends SimpleResourceMonitor {
+  private cancelled = false;
+  private newCodeDetected = false;
+
+  markNewCodeDetected(): void {
+    this.newCodeDetected = true;
+    this.cancelled = true;
+  }
+
+  isCancelled(): boolean {
+    return this.cancelled || this.signal.aborted;
+  }
+
+  isNewCodeDetected(): boolean {
+    return this.newCodeDetected;
   }
 }
 
@@ -190,30 +161,10 @@ const createDebugFunction = (unparsedResults: UnparsedResult[]) => {
         processedContent = {
           _isConsoleObject: true,
           methods: [
-            "log",
-            "warn",
-            "error",
-            "info",
-            "debug",
-            "table",
-            "dir",
-            "dirxml",
-            "trace",
-            "group",
-            "groupCollapsed",
-            "groupEnd",
-            "count",
-            "countReset",
-            "time",
-            "timeEnd",
-            "timeLog",
-            "timeStamp",
-            "assert",
-            "clear",
-            "profile",
-            "profileEnd",
-            "context",
-            "createTask",
+            "log", "warn", "error", "info", "debug", "table", "dir", "dirxml",
+            "trace", "group", "groupCollapsed", "groupEnd", "count", "countReset",
+            "time", "timeEnd", "timeLog", "timeStamp", "assert", "clear",
+            "profile", "profileEnd", "context", "createTask",
           ],
           memory: {
             totalJSHeapSize: 24500000,
@@ -253,10 +204,8 @@ const processResults = async (
   unparsedResults: UnparsedResult[],
   signal?: AbortSignal
 ): Promise<Result[]> => {
-  // Creamos array para ir almacenando promesas resueltas
   const results: Result[] = [];
 
-  // Procesamos secuencialmente para mejor control
   for (const result of unparsedResults) {
     // Verificar si se solicitó abortar
     if (signal?.aborted) {
@@ -303,34 +252,7 @@ const processResults = async (
 };
 
 /**
- * Detecta actividad asíncrona pendiente en el código
- */
-const detectPendingAsyncActivity = (): boolean => {
-  // Detección de timers activos
-  const hasActiveTimers =
-    typeof window !== "undefined" &&
-    // @ts-ignore - Acceso a propiedad interna para detectar timers activos
-    ((window as any).__timeoutIds?.size > 0 ||
-      (window as any).__intervalIds?.size > 0);
-
-  // Detección de promesas pendientes
-  const pendingPromisesCount =
-    typeof process !== "undefined"
-      ? // @ts-ignore - Node.js solo
-        process._getActivePromiseCount?.() || 0
-      : 0;
-
-  // Detección de peticiones de red pendientes
-  const hasPendingFetch =
-    typeof window !== "undefined" &&
-    // @ts-ignore - Propiedad para detectar fetches activos
-    (window as any).__activeFetchCount > 0;
-
-  return hasActiveTimers || pendingPromisesCount > 0 || hasPendingFetch;
-};
-
-/**
- * Ejecuta código transformado en un entorno controlado con capacidad de cancelación
+ * Ejecuta código transformado en un entorno controlado simplificado
  * @param transformedCode - Código ya transformado por Babel
  * @param options - Opciones de ejecución
  * @returns Promesa con resultados de la ejecución o Error
@@ -342,165 +264,193 @@ export const executeCode = async (
     environmentVariables?: Record<string, string>;
     timeoutMs?: number;
     disableCache?: boolean;
+    onNewCodeDetected?: () => void;
   }
 ): Promise<Result[] | Error> => {
-  // Validación inicial - aborto temprano si código vacío
+  // Validación inicial
   if (!transformedCode || transformedCode.trim() === "") return [];
 
   const {
     signal: externalSignal,
     environmentVariables = {},
-    timeoutMs,
+    timeoutMs = EXECUTOR_CONFIG.EXECUTION_TIMEOUT,
     disableCache = false,
+    onNewCodeDetected,
   } = options || {};
 
-  // Calcular timeout adaptativo basado en la complejidad del código
-  const adaptiveTimeout =
-    timeoutMs || calculateAdaptiveTimeout(transformedCode);
+  const codeHash = generateCodeHash(transformedCode);
 
-  // Verificar caché si está habilitada
-  if (EXECUTOR_CONFIG.ENABLE_EXECUTION_CACHE && !disableCache) {
-    const codeHash = generateCodeHash(transformedCode, environmentVariables);
+  // Verificar caché simple - SOLO si no se está forzando nueva ejecución
+  if (EXECUTOR_CONFIG.ENABLE_CACHE && !disableCache) {
     const cachedResult = executionCache.get(codeHash);
 
-    if (
-      cachedResult &&
-      Date.now() - cachedResult.timestamp < 30000 && // 30 segundos de validez
-      cachedResult.hash === codeHash
-    ) {
-      CodeLogger.log("info", "Resultado obtenido de caché", { codeHash });
-      return cachedResult.results;
+    // Verificar si el cache es válido y no muy antiguo
+    if (cachedResult && Date.now() - cachedResult.timestamp < EXECUTOR_CONFIG.CACHE_TTL) {
+      // IMPORTANTE: Solo usar cache si el hash no fue invalidado recientemente
+      const cacheAge = Date.now() - cachedResult.timestamp;
+      const isRecentlyInvalidated = cacheAge < 1000; // Menos de 1 segundo
+      
+      if (!isRecentlyInvalidated) {
+        CodeLogger.log("info", "Resultado obtenido de caché", { 
+          codeHash, 
+          cacheAge: cacheAge + "ms" 
+        });
+        return cachedResult.results;
+      } else {
+        CodeLogger.log("info", "Cache ignorado - invalidación reciente", { 
+          codeHash, 
+          cacheAge: cacheAge + "ms" 
+        });
+        // Remover cache invalidado
+        executionCache.delete(codeHash);
+      }
     }
   }
 
-  CodeLogger.log("info", "Iniciando ejecución de código", {
-    transformedCodeLength: transformedCode.length,
-    timeout: adaptiveTimeout,
+  CodeLogger.log("info", "Iniciando ejecución de código FRESCA", {
+    codeLength: transformedCode.length,
+    timeout: timeoutMs,
+    cacheDisabled: disableCache,
   });
 
-  // Iniciar monitor de recursos con timeout adaptativo
-  const resourceMonitor = new ResourceMonitor(adaptiveTimeout, externalSignal);
-  resourceMonitor.checkpoint("inicio");
+  // Iniciar monitor mejorado
+  const monitor = new EnhancedResourceMonitor(timeoutMs, externalSignal);
+
+  // Listener para detectar nuevo código
+  if (onNewCodeDetected && externalSignal) {
+    externalSignal.addEventListener("abort", () => {
+      monitor.markNewCodeDetected();
+      onNewCodeDetected();
+    });
+  }
 
   try {
     let unparsedResults: UnparsedResult[] = [];
 
     // Obtener contexto global
-    const globalContext = createGlobalContext(environmentVariables || {});
+    const globalContext = createGlobalContext(environmentVariables);
     const globalKeys = Object.keys(globalContext);
     const globalValues = Object.values(globalContext);
 
     // Crear función debug
     const debugFunction = createDebugFunction(unparsedResults);
 
-    // Crear función async con contexto global expandido
+    // Crear función async con contexto global
     const asyncFunction = AsyncFunction(
       "debug",
       ...globalKeys,
       transformedCode
     );
 
-    resourceMonitor.checkpoint("preparación_completada");
-
-    // Ejecutar el código y capturar el resultado
+    // Ejecutar el código
     try {
-      // Ejecutar con capacidad de aborto
       await asyncFunction(debugFunction, ...globalValues);
-      resourceMonitor.checkpoint("ejecución_completada");
       CodeLogger.log("info", "Código ejecutado sin errores");
     } catch (executionError: any) {
       // Verificar si es un error de aborto
-      if (resourceMonitor.signal.aborted) {
-        const abortReason =
-          resourceMonitor.signal.reason instanceof Error
-            ? resourceMonitor.signal.reason.message
-            : "Ejecución abortada";
+      if (monitor.signal.aborted) {
+        const abortReason = monitor.signal.reason instanceof Error
+          ? monitor.signal.reason.message
+          : "Ejecución abortada";
 
         const errorInfo = parseError(new Error(abortReason), "execution");
-        CodeLogger.log("warn", "Ejecución abortada", errorInfo);
-
-        return [
-          {
-            element: {
-              content: formatErrorForDisplay(errorInfo),
-              color: Colors.ERROR,
-            },
-            type: "error",
-            errorInfo,
-          },
-        ];
-      }
-
-      // Capturar errores normales de ejecución
-      const errorInfo = parseError(executionError, "execution");
-      CodeLogger.log("error", "Error durante ejecución", errorInfo);
-
-      return [
-        {
+        return [{
           element: {
             content: formatErrorForDisplay(errorInfo),
             color: Colors.ERROR,
           },
           type: "error",
           errorInfo,
+        }];
+      }
+
+      // Error normal de ejecución
+      const errorInfo = parseError(executionError, "execution");
+      CodeLogger.log("error", "Error durante ejecución", errorInfo);
+
+      return [{
+        element: {
+          content: formatErrorForDisplay(errorInfo),
+          color: Colors.ERROR,
         },
-      ];
+        type: "error",
+        errorInfo,
+      }];
     }
 
-    // Espera inteligente para logs asíncronos con detección de actividad
-    resourceMonitor.checkpoint("iniciando_espera_asíncrona");
-
-    let waitTime = 0;
-    const checkInterval = EXECUTOR_CONFIG.CHECK_INTERVAL;
-    const maxWaitTime = EXECUTOR_CONFIG.MAX_WAIT_TIME;
-    let lastResultCount = unparsedResults.length;
-    let stableCount = 0;
-    const requiredStableChecks = EXECUTOR_CONFIG.REQUIRED_STABLE_CHECKS;
-
-    // Espera adaptativa para operaciones asíncronas
-    while (waitTime < maxWaitTime && !resourceMonitor.signal.aborted) {
-      await new Promise((resolve) => setTimeout(resolve, checkInterval));
-      waitTime += checkInterval;
-
-      // Verificar si hay nuevos resultados
-      if (unparsedResults.length > lastResultCount) {
-        lastResultCount = unparsedResults.length;
-        stableCount = 0; // Reiniciar contador de estabilidad
-        resourceMonitor.checkpoint("nuevos_resultados_detectados");
-      } else {
-        stableCount++;
-      }
-
-      // Detección de actividad asíncrona pendiente
-      const hasPendingActivity = detectPendingAsyncActivity();
-      if (hasPendingActivity) {
-        stableCount = 0; // Reiniciar si hay actividad pendiente
-      }
-
-      // Para código con delays, esperar más tiempo antes de considerar estable
-      const minimumWaitTime = EXECUTOR_CONFIG.MINIMUM_STABLE_TIME;
-
-      if (
-        stableCount >= requiredStableChecks &&
-        unparsedResults.length > 0 &&
-        waitTime >= minimumWaitTime &&
-        !hasPendingActivity
-      ) {
-        resourceMonitor.checkpoint("logs_asincronos_estabilizados");
-        CodeLogger.log("info", "Logs asíncronos estabilizados, continuando", {
-          waitTime,
-          finalResultCount: unparsedResults.length,
-        });
-        break;
-      }
-    }
-
-    if (waitTime >= maxWaitTime) {
-      resourceMonitor.checkpoint("timeout_espera_asincrona");
-      CodeLogger.log("warn", "Timeout alcanzado esperando logs asíncronos", {
-        maxWaitTime,
-        finalResultCount: unparsedResults.length,
+    // Espera inteligente para operaciones asíncronas - SIN TRACKING
+    // CAMBIO IMPORTANTE: Timeout fijo sin tracking problemático
+    const hasAsyncCode = transformedCode.includes("await") || transformedCode.includes("async") || transformedCode.includes("Promise");
+    
+    if (unparsedResults.length === 0 || hasAsyncCode) {
+      let waitTime = 0;
+      const maxWait = hasAsyncCode ? 3000 : 1000; // Timeout fijo reducido
+      let lastResultCount = unparsedResults.length;
+      let stableChecks = 0;
+      const requiredStableChecks = 3;
+      const checkInterval = 300;
+      
+      CodeLogger.log("info", "Iniciando espera con timeout fijo", {
+        maxWait,
+        hasAsyncCode,
+        initialResultCount: lastResultCount
       });
+      
+      while (waitTime < maxWait && !monitor.isCancelled()) {
+        await new Promise((resolve) => setTimeout(resolve, checkInterval));
+        waitTime += checkInterval;
+        
+        // Cancelación si se detecta nuevo código
+        if (monitor.isNewCodeDetected()) {
+          CodeLogger.log("info", "Nuevo código detectado, cancelando espera");
+          break;
+        }
+        
+        // Verificar si aparecieron nuevos resultados
+        if (unparsedResults.length > lastResultCount) {
+          const newResults = unparsedResults.length - lastResultCount;
+          lastResultCount = unparsedResults.length;
+          stableChecks = 0; // Resetear estabilidad
+          CodeLogger.log("info", `Nuevos resultados: +${newResults} (total: ${unparsedResults.length})`);
+          continue;
+        }
+        
+        // Incrementar contador de estabilidad
+        stableChecks++;
+        
+        // Si tenemos resultados y han sido estables por un tiempo
+        if (unparsedResults.length > 0 && stableChecks >= requiredStableChecks) {
+          CodeLogger.log("info", "Resultados estabilizados - finalizando", {
+            resultCount: unparsedResults.length,
+            waitTime,
+            stableChecks
+          });
+          break;
+        }
+        
+        // Log cada segundo
+        if (waitTime % 1000 === 0) {
+          CodeLogger.log("info", "Esperando resultados", {
+            waitTime,
+            maxWait,
+            resultCount: unparsedResults.length,
+            stableChecks
+          });
+        }
+      }
+      
+      // Log final
+      if (waitTime >= maxWait) {
+        CodeLogger.log("info", "Timeout alcanzado - usando resultados disponibles", {
+          maxWait,
+          finalResultCount: unparsedResults.length
+        });
+      } else {
+        CodeLogger.log("info", "Espera completada", {
+          waitTime,
+          resultCount: unparsedResults.length
+        });
+      }
     }
 
     if (unparsedResults.length === 0) {
@@ -508,26 +458,20 @@ export const executeCode = async (
       return [];
     }
 
-    // Procesar resultados con capacidad de cancelación
-    resourceMonitor.checkpoint("procesando_resultados");
-    const parsedResults = await processResults(
-      unparsedResults,
-      resourceMonitor.signal
-    );
+    // Procesar resultados
+    const parsedResults = await processResults(unparsedResults, monitor.signal);
 
-    resourceMonitor.checkpoint("procesamiento_completado");
-    CodeLogger.log("info", "Procesamiento de resultados completado", {
+    CodeLogger.log("info", "Ejecución completada", {
       resultCount: parsedResults.length,
-      executionStats: resourceMonitor.getStats(),
+      executionTime: monitor.getElapsedTime(),
     });
 
-    // Guardar en caché si está habilitado
-    if (EXECUTOR_CONFIG.ENABLE_EXECUTION_CACHE && !disableCache) {
-      const codeHash = generateCodeHash(transformedCode, environmentVariables);
+    // Guardar en caché simple
+    if (EXECUTOR_CONFIG.ENABLE_CACHE && !disableCache) {
+      const codeHash = generateCodeHash(transformedCode);
 
-      // Gestionar tamaño máximo de caché
+      // Limpiar cache si está lleno
       if (executionCache.size >= EXECUTOR_CONFIG.MAX_CACHE_SIZE) {
-        // Eliminar entrada más antigua
         const oldestKey = executionCache.keys().next().value;
         if (oldestKey) {
           executionCache.delete(oldestKey);
@@ -537,51 +481,44 @@ export const executeCode = async (
       executionCache.set(codeHash, {
         timestamp: Date.now(),
         results: parsedResults,
-        hash: codeHash,
       });
     }
 
     return parsedResults;
   } catch (error: unknown) {
-    // Si el error es por cancelación, mostrar mensaje apropiado
-    if (resourceMonitor.signal.aborted || externalSignal?.aborted) {
-      const abortReason =
-        (resourceMonitor.signal.reason || externalSignal?.reason) instanceof
-        Error
-          ? (resourceMonitor.signal.reason || externalSignal?.reason).message
-          : "Ejecución cancelada";
-
+    // Manejo de errores simplificado
+    if (monitor.signal.aborted || externalSignal?.aborted) {
+      const abortReason = monitor.isNewCodeDetected() 
+        ? "Ejecución cancelada por nuevo código"
+        : "Ejecución cancelada";
       const errorInfo = parseError(new Error(abortReason), "execution");
-      return [
-        {
-          element: {
-            content: formatErrorForDisplay(errorInfo),
-            color: Colors.ERROR,
-          },
-          type: "error",
-          errorInfo,
-        },
-      ];
-    }
-
-    // Error general durante la ejecución
-    const errorInfo = parseError(error, "execution");
-    CodeLogger.log("error", "Error general durante ejecución", errorInfo);
-
-    return [
-      {
+      
+      return [{
         element: {
           content: formatErrorForDisplay(errorInfo),
           color: Colors.ERROR,
         },
         type: "error",
         errorInfo,
+      }];
+    }
+
+    // Error general
+    const errorInfo = parseError(error, "execution");
+    CodeLogger.log("error", "Error general durante ejecución", errorInfo);
+
+    return [{
+      element: {
+        content: formatErrorForDisplay(errorInfo),
+        color: Colors.ERROR,
       },
-    ];
+      type: "error",
+      errorInfo,
+    }];
   } finally {
-    // Asegurar que se aborte el monitor de recursos
-    if (!resourceMonitor.signal.aborted) {
-      resourceMonitor.abort();
+    // Limpiar recursos
+    if (!monitor.signal.aborted) {
+      monitor.abort();
     }
   }
 };

@@ -109,9 +109,42 @@ const getBabelConfig = (
     CodeLogger.log("info", "Preset TypeScript agregado");
   }
 
-  // Preset env como base (siempre)
-  presets.push("env");
-  CodeLogger.log("info", "Preset env agregado como base");
+  // Usar configuración moderna específica en lugar de preset genérico "env"
+  // Esto garantiza soporte para async/await, top-level await, ES2022+
+  const modernPreset = [
+    "env",
+    {
+      targets: {
+        esmodules: true,
+        // Configuración específica para ES2022+ que incluye top-level await
+        chrome: "91",     // Chrome 91+ (2021) - soporte completo ES2022
+        firefox: "89",    // Firefox 89+ (2021) - soporte ES2022
+        safari: "15",     // Safari 15+ (2021) - soporte top-level await
+        edge: "91"        // Edge 91+ (2021) - basado en Chromium
+      },
+      modules: false,     // Preservar ES modules para top-level await
+      loose: false,       // Transformaciones precisas
+      bugfixes: true,     // Correcciones de bugs habilitadas
+      debug: false,       // Sin debug verbose
+      // Solo incluir características que sabemos que están disponibles
+      include: [
+        // Características básicas que están confirmadas
+        "proposal-object-rest-spread", 
+        "proposal-optional-chaining",
+        "proposal-nullish-coalescing-operator",
+        "proposal-numeric-separator",
+        "proposal-class-properties",
+        "proposal-private-methods"
+      ],
+      exclude: [
+        // Excluir transformaciones que no necesitamos
+        "transform-typeof-symbol"
+      ]
+    }
+  ];
+  
+  presets.push(modernPreset);
+  CodeLogger.log("info", "Preset env moderno agregado con soporte ES2022+");
 
   return { presets, plugins };
 };
@@ -249,21 +282,57 @@ export const transformCode = (code: string, fileLanguage?: string): string => {
       presets,
       sourceType: "module",
       parserOpts: {
-        allowAwaitOutsideFunction: true,
-        allowReturnOutsideFunction: true,
-        strictMode: false,
-        allowImportExportEverywhere: true,
-        allowSuperOutsideMethod: true,
-        allowUndeclaredExports: true,
+        allowAwaitOutsideFunction: true,           // Permitir top-level await
+        allowReturnOutsideFunction: true,         // Permitir return en módulos
+        strictMode: false,                        // No modo estricto
+        allowImportExportEverywhere: true,        // Imports/exports flexibles
+        allowSuperOutsideMethod: true,           // Super fuera de métodos
+        allowUndeclaredExports: true            // Exports no declarados
       },
       targets: {
         esmodules: true,
+        chrome: "90",
+        firefox: "88", 
+        safari: "14.1",
+        edge: "90"
       },
       sourceMaps: true,
       plugins,
       assumptions: {
-        setPublicClassFields: true,
-        privateFieldsAsProperties: true,
+        // Campos públicos y privados (ES2022)
+        setPublicClassFields: true,             // Usar asignación directa para campos públicos
+        privateFieldsAsProperties: true,        // Campos privados como propiedades no-enumerables (mejor para debug)
+        
+        // Async/await y Promises optimizados
+        constantSuper: true,                    // Super es constante (mejora async en clases)
+        constantReexports: true,                // Re-exports son constantes
+        enumerableModuleMeta: true,            // Meta de módulo enumerable
+        
+        // Iteradores y generadores
+        iterableIsArray: false,                 // No asumir que iterables son arrays (importante para generadores)
+        skipForOfIteratorClosing: false,       // NO omitir cierre de iteradores (importante para generadores)
+        
+        // Optimizaciones de funciones
+        ignoreFunctionLength: true,             // Ignorar longitud de función (optimización)
+        ignoreToPrimitiveHint: true,           // Ignorar hint toPrimitive
+        noClassCalls: true,                    // No llamadas a clase como función
+        noNewArrows: true,                     // No new con arrow functions
+        superIsCallableConstructor: true,      // Super es constructor llamable
+        
+        // Optimizaciones de objetos y propiedades
+        mutableTemplateObject: true,           // Template objects mutables (mejor rendimiento)
+        objectRestNoSymbols: false,            // Rest puede incluir symbols (más preciso)
+        setSpreadProperties: true,             // Spread establece propiedades directamente
+        setComputedProperties: true,           // Propiedades computadas como asignación
+        setClassMethods: true,                 // Métodos de clase como asignación
+        
+        // Compatibilidad moderna
+        noDocumentAll: true,                   // No hay document.all (navegadores modernos)
+        pureGetters: true,                     // Getters son puros (sin efectos secundarios)
+        
+        // Configuración específica para async/await con setTimeout
+        arrayLikeIsIterable: true,             // Array-like objects son iterables
+        noUninitializedPrivateFieldAccess: true // No acceso a campos privados no inicializados
       },
     });
 

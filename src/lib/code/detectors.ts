@@ -1,5 +1,22 @@
 import { CodeLogger } from "./errorHandler";
 
+// Importar las funciones de limpieza de cache
+let clearExecutionCache: (() => void) | null = null;
+let forceNewExecution: ((code: string) => void) | null = null;
+
+// Importación lazy para evitar dependencias circulares
+const importCacheFunctions = async () => {
+  if (!clearExecutionCache || !forceNewExecution) {
+    try {
+      const cacheModule = await import("./code-executor");
+      clearExecutionCache = cacheModule.clearExecutionCache;
+      forceNewExecution = cacheModule.forceNewExecution;
+    } catch (error) {
+      CodeLogger.log("warn", "No se pudieron importar funciones de cache", error);
+    }
+  }
+};
+
 /**
  * Detecta si el código contiene sintaxis JSX
  * @param code - Código a analizar
@@ -11,7 +28,7 @@ export const detectJSX = (code: string): boolean => {
     codePreview: code.substring(0, 100),
   });
 
-  // Patrones específicos de JSX más precisos
+  // Patrones específicos de JSX más precisos - SIN falsos positivos
   const jsxPatterns = [
     /<[A-Z][a-zA-Z0-9]*(\s[^>]*)?\s*\/?>/, // Componentes React (PascalCase): <MyComponent />
     /<[a-z][a-zA-Z0-9]*(\s[^>]*)?\s*\/?>/, // Elementos HTML: <div>, <button>, etc.
@@ -19,11 +36,14 @@ export const detectJSX = (code: string): boolean => {
     /className\s*=/, // Atributo específico de React
     /onClick\s*=/, // Eventos de React
     /return\s*\(\s*</, // return ( seguido de JSX
-    /\{\s*[\w.]+\s*\}/, // Interpolación JSX {variable} o {obj.prop}
+    // REMOVIDO: /\{\s*[\w.]+\s*\}/, // Este patrón causa falsos positivos con destructuring
     /useState|useEffect|useContext|useReducer/, // Hooks de React
     /React\./, // Uso directo de React
     /<>\s*.*\s*<\/>/, // React fragments
     /jsx|JSX/, // Comentarios o menciones de JSX
+    // Patrón más específico para interpolación JSX (debe estar dentro de elementos HTML)
+    /<[a-zA-Z][^>]*>\s*\{[^}]+\}\s*<\/[a-zA-Z]/, // JSX con interpolación real: <div>{variable}</div>
+    /<[a-zA-Z][^>]*\s+\w+\s*=\s*\{[^}]+\}/, // Atributos JSX con llaves: <div prop={value}>
   ];
 
   // Verificar si al menos uno de los patrones coincide
@@ -56,7 +76,30 @@ export const detectJSX = (code: string): boolean => {
     return match;
   });
 
+  // Verificaciones adicionales para evitar falsos positivos
+  const hasDestructuring = /const\s*\{\s*[\w\s,]+\}\s*=/.test(code);
+  const hasObjectLiterals = /\{\s*\w+\s*:\s*\w+/.test(code);
+  const hasJSFunction = /function\s*\*|\bclass\b|\basync\s+function/.test(code);
+  
   const result = hasJSXPattern || hasReactComponent;
+  
+  // Si es JavaScript normal (no JSX) y tiene patrones que podrían confundirse con JSX
+  const isJavaScriptNormal = !result && (hasDestructuring || hasObjectLiterals || hasJSFunction);
+  
+  if (isJavaScriptNormal) {
+    CodeLogger.log("info", "Falso positivo JSX evitado: código JavaScript normal detectado");
+    
+    // FORZAR limpieza de cache INMEDIATAMENTE para garantizar nueva ejecución
+    importCacheFunctions().then(() => {
+      if (clearExecutionCache && forceNewExecution) {
+        clearExecutionCache(); // Limpiar TODO el cache
+        forceNewExecution(code); // Forzar nueva ejecución específica
+        CodeLogger.log("info", "Cache completamente limpiado debido a detección JSX corregida");
+      }
+    });
+  }
+  
+  // Log final más detallado
   CodeLogger.log("info", `Detección JSX final: ${result}`, {
     hasJSXPattern,
     hasReactComponent,
@@ -64,6 +107,11 @@ export const detectJSX = (code: string): boolean => {
     codeContainsButton: code.includes("<button"),
     codeContainsReturn: code.includes("return ("),
     codeContainsUseState: code.includes("useState"),
+    hasDestructuring,
+    hasObjectLiterals,
+    hasJSFunction,
+    isJavaScriptNormal,
+    willInvalidateCache: isJavaScriptNormal
   });
 
   return result;

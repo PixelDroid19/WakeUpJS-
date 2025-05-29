@@ -1,5 +1,5 @@
 /**
- * Motor de Ejecución de Código Profesional
+ * Motor de Ejecución de Código
  * 
  * Características:
  * - Ejecución en Worker Threads para aislamiento

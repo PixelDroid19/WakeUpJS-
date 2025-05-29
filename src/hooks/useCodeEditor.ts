@@ -75,19 +75,19 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
       return;
     }
     
-    // Código con contenido real - ejecutar con el motor profesional
+   
     setIsRunning(true);
     setIsTransforming(true);
     clearError();
-    onResult(""); // Limpiar resultados anteriores
+    onResult(""); 
 
-    CodeLogger.log('info', 'Hook: Iniciando ejecución con motor profesional', { 
+    CodeLogger.log('info', 'Hook: Iniciando ejecución ', { 
       codeLength: code.length,
       engineMetrics: globalExecutionEngine.getMetrics()
     });
 
     try {
-      // Ejecutar usando el motor de ejecución profesional
+  
       const executionResult = await globalExecutionEngine.execute(code, {
         priority: 1, // Alta prioridad para ejecuciones del editor
         bypassCache: false // Usar cache para optimizar rendimiento
@@ -123,7 +123,7 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
         setError(errorMessage);
         onResult([{ element: { content: errorMessage }, type: "error" }]);
         
-        CodeLogger.log('error', 'Hook: Error en ejecución profesional', { 
+        CodeLogger.log('error', 'Hook: Error en ejecución', { 
           error: errorMessage,
           errorType: executionResult.error.type,
           severity: executionResult.error.severity,
