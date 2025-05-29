@@ -3,7 +3,6 @@ import { run, transformCode } from '../lib/code/run';
 import { globalExecutionEngine, syncEngineWithDynamicConfig } from '../lib/code/execution-engine';
 import { useExecutionAdvancedConfig, useGlobalContextConfig } from '../context/ConfigContext';
 import { CodeLogger } from '../lib/code/errorHandler';
-import { EDITOR_CONFIG } from '../constants/config';
 import type { ErrorInfo } from '../context/CodeContext';
 
 interface UseCodeEditorResult {

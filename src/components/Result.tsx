@@ -2,6 +2,8 @@ import React, { useContext, useMemo, useRef, useEffect } from "react";
 import { CodeResultContext } from "../context/CodeContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useToolbar } from "../context/ToolbarContext";
+import { useAutoExecutionConfig } from "../context/ConfigContext";
+import { useCodeEditor } from "../hooks/useCodeEditor";
 import Editor from "@monaco-editor/react";
 import { EDITOR_THEMES, EDITOR_CONFIG } from "../constants/config";
 import {
@@ -44,7 +46,21 @@ function Result() {
   const { result } = useContext(CodeResultContext);
   const { utils } = useWorkspace();
   const { config } = useToolbar();
+  const autoExecutionConfig = useAutoExecutionConfig();
   const editorRef = useRef<any>(null); // Referencia al editor de Monaco
+
+  // Obtener elementos de useCodeEditor para mostrar errores y control de ejecución
+  const { 
+    error, 
+    errorInfo, 
+    clearError, 
+    cancelExecution,
+    isRunning,
+    isTransforming
+  } = useCodeEditor({
+    onResult: () => {}, // No necesitamos manejar resultados aquí, ya que lo hace CodeResultContext
+    onCodeChange: () => {}, // No necesitamos manejar cambios de código aquí
+  });
 
   const activeFile = utils.getActiveFile();
 
@@ -174,6 +190,33 @@ function Result() {
     }
   }, [resultText]);
 
+  // Función para formatear un error específico
+  const formatErrorMessage = (errorMessage: string, info?: any): string => {
+    if (!errorMessage) return '';
+    
+    // Quitar prefijos comunes de errores para simplificar
+    let cleanMessage = errorMessage
+      .replace(/^Error: /, '')
+      .replace(/^SyntaxError: /, 'Syntax: ');
+    
+    // Formatear ubicación del error si está disponible
+    let location = '';
+    if (info && info.line) {
+      location = ` (línea ${info.line}${info.column ? `, columna ${info.column}` : ''})`;
+    }
+    
+    return `❌ Error${info?.type ? ` de ${info.type}` : ''}: ${cleanMessage}${location}`;
+  };
+
+  // Efecto para manejar errores específicos del motor de ejecución
+  useEffect(() => {
+    if (error && !elements.some(e => e.type === ResultType.ERROR)) {
+      // Si hay un error del motor pero no está en los elementos de resultado,
+      // podríamos añadirlo manualmente si tuviéramos acceso directo a la actualización
+      console.error("Error detectado por el motor:", error);
+    }
+  }, [error, elements]);
+
   if (!elements || elements.length === 0) {
     return (
       <div className="text-cyan-50 bg-[#1e1e1e] flex items-center justify-center h-full">
@@ -184,6 +227,23 @@ function Result() {
             </div>
           </div>
           <p className="text-lg font-medium">Resultados de Ejecución</p>
+          
+          {/* Mostrar error del motor si existe y no hay otros resultados */}
+          {error && (
+            <div className="mt-3 text-red-400 border border-red-800 rounded-md p-3 mx-auto max-w-md bg-red-900/20">
+              <div className="text-sm font-medium mb-1">Error detectado:</div>
+              <div className="text-xs overflow-auto max-h-32">
+                {formatErrorMessage(error, errorInfo)}
+              </div>
+              <button 
+                onClick={clearError}
+                className="mt-2 px-2 py-1 text-xs bg-red-800/40 hover:bg-red-800/60 rounded"
+              >
+                Limpiar Error
+              </button>
+            </div>
+          )}
+          
           <p className="text-sm mt-2 opacity-75">
             {activeFile
               ? `Ejecuta código en ${activeFile.name}`
@@ -195,6 +255,30 @@ function Result() {
                 <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
                 {activeFile.name} ({activeFile.language})
               </span>
+            </div>
+          )}
+          {autoExecutionConfig.enabled && (
+            <div className="mt-3 text-xs text-green-400">
+              <span className="flex items-center gap-1 justify-center">
+                <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                Ejecución automática activa
+              </span>
+            </div>
+          )}
+          
+          {/* Mostrar estado de ejecución actual */}
+          {(isRunning || isTransforming) && (
+            <div className="mt-3 flex flex-col items-center">
+              <div className="animate-pulse text-blue-400 text-xs flex items-center gap-1">
+                <div className="animate-spin w-3 h-3 border border-blue-400 border-t-transparent rounded-full"></div>
+                {isTransforming ? "Transformando código..." : "Ejecutando..."}
+              </div>
+              <button 
+                onClick={() => cancelExecution()}
+                className="mt-2 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded"
+              >
+                Cancelar
+              </button>
             </div>
           )}
         </div>
@@ -248,6 +332,24 @@ function Result() {
         onMount={handleEditorDidMount} // Obtener la referencia al editor
       />
 
+      {/* Panel de control de errores */}
+      {error && (
+        <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-red-900/90 text-white px-3 py-2 rounded-lg shadow-lg max-w-md">
+          <div className="flex items-center gap-2 text-xs">
+            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+            <span className="font-medium overflow-hidden text-ellipsis whitespace-nowrap">
+              {formatErrorMessage(error, errorInfo)}
+            </span>
+            <button 
+              onClick={clearError}
+              className="ml-auto bg-red-800/50 hover:bg-red-800 px-2 py-1 rounded text-xs"
+            >
+              Limpiar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Estadísticas en la parte inferior */}
       {elements.length > 0 && (
         <div className="absolute bottom-2 left-2 z-10 bg-gray-800/90 border border-gray-700 rounded-md px-2 py-1 text-xs text-gray-400">
@@ -287,16 +389,41 @@ function Result() {
         </div>
       )}
 
-      {/* Botón para copiar al portapapeles (ejemplo) */}
-      {resultText && (
-        <button
-          onClick={() => navigator.clipboard.writeText(resultText)}
-          className="absolute bottom-2 right-2 z-10 bg-gray-800/90 border border-gray-700 rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-gray-700"
-          title="Copiar resultados"
-        >
-          📋 Copiar
-        </button>
-      )}
+      {/* Panel de controles (copiar y cancelar ejecución) */}
+      <div className="absolute bottom-2 right-2 z-10 flex gap-2">
+        {/* Botón para cancelar ejecución en progreso */}
+        {(isRunning || isTransforming) && (
+          <button
+            onClick={() => cancelExecution()}
+            className="bg-red-800/90 hover:bg-red-700 border border-red-700 rounded-md px-2 py-1 text-xs text-white"
+            title="Cancelar ejecución"
+          >
+            ⏹️ Cancelar
+          </button>
+        )}
+        
+        {/* Botón para limpiar errores si hay alguno */}
+        {error && (
+          <button
+            onClick={clearError}
+            className="bg-yellow-800/90 hover:bg-yellow-700 border border-yellow-700 rounded-md px-2 py-1 text-xs text-white"
+            title="Limpiar errores"
+          >
+            🧹 Limpiar errores
+          </button>
+        )}
+        
+        {/* Botón para copiar al portapapeles */}
+        {resultText && (
+          <button
+            onClick={() => navigator.clipboard.writeText(resultText)}
+            className="bg-gray-800/90 border border-gray-700 rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-gray-700"
+            title="Copiar resultados"
+          >
+            📋 Copiar
+          </button>
+        )}
+      </div>
     </div>
   );
 }

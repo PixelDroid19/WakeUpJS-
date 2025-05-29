@@ -1,4 +1,14 @@
-import { useContext, useCallback, useEffect, useState, useRef, Suspense, Component, ErrorInfo, ReactNode } from "react";
+import {
+  useContext,
+  useCallback,
+  useEffect,
+  useState,
+  useRef,
+  Suspense,
+  Component,
+  ErrorInfo,
+  ReactNode,
+} from "react";
 import Editor from "./components/Editor";
 import {
   CodeContext,
@@ -38,9 +48,12 @@ class ContextErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Context Error Boundary:", error, errorInfo);
-    
+
     // Si es un error de contexto, intentar recuperarse automáticamente
-    if (error.message.includes("useWorkspace") || error.message.includes("Context")) {
+    if (
+      error.message.includes("useWorkspace") ||
+      error.message.includes("Context")
+    ) {
       setTimeout(() => {
         this.setState({ hasError: false, error: null });
       }, 1000);

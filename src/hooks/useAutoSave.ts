@@ -45,6 +45,8 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
   const infiniteLoopThresholdRef = useRef<number>(10);
   const infiniteLoopTimeWindowRef = useRef<number>(2000);
   const lastInfiniteLoopCheckRef = useRef<number>(Date.now());
+  const hasLoadedSessionRef = useRef(false);
+  const sessionLoadAttemptedRef = useRef(false);
 
   // Función para verificar si es seguro guardar
   const isSafeToSave = useCallback((): boolean => {
@@ -139,6 +141,15 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
   }, []);
 
   const loadSession = useCallback((): boolean => {
+    // Evitar intentos múltiples de carga
+    if (sessionLoadAttemptedRef.current) {
+      console.log('📝 Carga de sesión ya intentada, evitando duplicación');
+      return false;
+    }
+    
+    // Marcar que se ha intentado cargar
+    sessionLoadAttemptedRef.current = true;
+    
     // Verificar bucle infinito en carga
     if (checkForInfiniteLoop()) {
       return false;
@@ -189,13 +200,37 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
         lastContentHashRef.current[file.id] = hashString(file.content || '');
       });
       
-      console.log('📂 Sesión cargada:', filesWithCorrectTypes.length, 'archivos');
+      // Determinar si hay contenido ejecutable
+      const hasExecutableContent = filesWithCorrectTypes.some(file => 
+        file.content && file.content.trim() !== ''
+      );
+      
+      // Archivo activo con contenido
+      const activeFile = session.activeFileId ? 
+        filesWithCorrectTypes.find(f => f.id === session.activeFileId) : 
+        undefined;
+      
+      const activeFileHasContent = activeFile && 
+        activeFile.content && 
+        activeFile.content.trim() !== '';
+      
+      console.log('📂 Sesión cargada:', filesWithCorrectTypes.length, 'archivos', 
+        activeFileHasContent ? '(archivo activo con contenido)' : '');
       
       // Actualizar timestamp de última carga
       lastSaveRef.current = session.lastSaved || Date.now();
       
       isLoadingSessionRef.current = false;
-      return true;
+      hasLoadedSessionRef.current = true;
+      
+      // Devolver true si hay contenido ejecutable, priorizando el archivo activo
+      const shouldExecute = activeFileHasContent || hasExecutableContent;
+      
+      if (shouldExecute) {
+        console.log('⚡ Sesión cargada con contenido ejecutable');
+      }
+      
+      return shouldExecute;
     } catch (error) {
       console.error('Error cargando sesión:', error);
       clearSession();

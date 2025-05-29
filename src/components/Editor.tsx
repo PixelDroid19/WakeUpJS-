@@ -7,6 +7,7 @@ import { useSnippets } from "../context/SnippetsContext";
 import { useCodeEditor } from "../hooks/useCodeEditor";
 import { useDebouncedCodeRunner } from "../hooks/useDebouncedCodeRunner";
 import { useAutoSave } from "../hooks/useAutoSave";
+import { useAutoExecutionConfig } from "../context/ConfigContext";
 import { EDITOR_CONFIG, EDITOR_THEMES } from "../constants/config";
 import {
   handleEditorWillMount,
@@ -28,6 +29,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const { installedPackages } = usePackageManager();
   const { state: snippetsState, actions: snippetsActions } = useSnippets();
   const [isDashboardVisible, setIsDashboardVisible] = useState(false);
+  const autoExecutionConfig = useAutoExecutionConfig();
 
   // Referencia para Monaco y el editor
   const monacoInstanceRef = useRef<any>(null);
@@ -58,7 +60,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   });
 
   // Hook de debounce inteligente con estado visual
-  const { handler, status, cancelPending, forceExecute } =
+  const { handler, status, cancelPending, forceExecute, executeImmediately, isAutoExecutionEnabled } =
     useDebouncedCodeRunner({
       runCode: (code: string) => runCode(code),
       onStatusChange: (status) => {
@@ -86,11 +88,14 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   });
 
   // Referencia para evitar cargas múltiples
-  const hasLoadedSessionRef = useRef(false);
+  const sessionLoadAttemptedRef = useRef(false);
 
   // Referencias adicionales para controlar ejecución automática
   const sessionJustLoadedRef = useRef(false);
+  const hasExecutableContentRef = useRef(false);
   const runCodeRef = useRef(runCode);
+  const lastExecutedCodeRef = useRef<string>('');
+  const initialExecutionDoneRef = useRef(false);
 
   // Actualizar la ref cuando runCode cambie
   useEffect(() => {
@@ -99,35 +104,54 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
   // Cargar sesión al montar el componente (solo una vez)
   useEffect(() => {
-    if (!hasLoadedSessionRef.current && !isLoadingSession) {
-      hasLoadedSessionRef.current = true;
-      const sessionLoaded = loadSession();
-      if (sessionLoaded) {
-        console.log("🔄 Sesión anterior restaurada");
+    if (!sessionLoadAttemptedRef.current && !isLoadingSession) {
+      sessionLoadAttemptedRef.current = true;
+      const hasExecutableContent = loadSession();
+      
+      if (hasExecutableContent) {
+        console.log("🔄 Sesión anterior restaurada con contenido ejecutable");
         // Limpiar resultados anteriores al cargar sesión para evitar confusión
         setResult("");
         sessionJustLoadedRef.current = true;
+        hasExecutableContentRef.current = true;
+        
         // Después de un tiempo, permitir ejecución automática nuevamente
         setTimeout(() => {
           sessionJustLoadedRef.current = false;
+          // En este punto, el useEffect de activeFile debería ejecutar el código automáticamente
         }, 1000);
       } else {
-        // Si no se cargó una sesión, también limpiar resultados
+        // Si no se cargó una sesión o no hay contenido ejecutable, limpiar resultados
         setResult("");
       }
     }
   }, [loadSession, isLoadingSession, setResult]);
 
-  // Ejecutar código cuando cambie el archivo activo (pero no en carga inicial)
+  // Ejecutar código cuando cambie el archivo activo o al iniciar la aplicación
   useEffect(() => {
-    // No ejecutar si acabamos de cargar una sesión (esperar eventos de usuario)
+    // No ejecutar si no hay archivo activo o si está cargando sesión
+    if (!activeFile || isLoadingSession) return;
+    
+    const currentCode = activeFile.content || '';
+    
+    // Si el código es el mismo que ya ejecutamos, evitar ejecutarlo de nuevo
+    if (currentCode === lastExecutedCodeRef.current && initialExecutionDoneRef.current) {
+      console.log("⏭️ Evitando re-ejecución del mismo código");
+      return;
+    }
+    
+    // Si estamos justo después de cargar sesión
     if (sessionJustLoadedRef.current) {
-      // Solo restaurar posición del cursor sin ejecutar
-      if (
-        activeFile &&
-        editorInstanceRef.current &&
-        monacoInstanceRef.current
-      ) {
+      // Si hay auto ejecución activa y contenido ejecutable, ejecutar una sola vez
+      if (isAutoExecutionEnabled && hasExecutableContentRef.current && currentCode.trim() !== '') {
+        console.log("⚡ Ejecutando código inicial automáticamente");
+        executeImmediately(currentCode);
+        lastExecutedCodeRef.current = currentCode;
+        initialExecutionDoneRef.current = true;
+      }
+      
+      // Restaurar posición del cursor sin importar si se ejecuta o no
+      if (editorInstanceRef.current && monacoInstanceRef.current) {
         const savedPosition = getCursorPosition(activeFile.id);
         if (savedPosition) {
           editorInstanceRef.current.setPosition({
@@ -139,10 +163,12 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       return;
     }
 
-    // Si hay contenido no vacío, ejecutarlo automáticamente
-    if (activeFile?.content && activeFile.content.trim() !== "") {
+    // Para cambios normales de archivo activo (solo si el contenido ha cambiado)
+    if (currentCode.trim() !== '' && currentCode !== lastExecutedCodeRef.current) {
       console.log("🔄 Auto-ejecutando código existente");
-      runCodeRef.current(activeFile.content); // Usar la ref estable
+      runCodeRef.current(currentCode);
+      lastExecutedCodeRef.current = currentCode;
+      initialExecutionDoneRef.current = true;
 
       // Restaurar posición del cursor
       if (editorInstanceRef.current && monacoInstanceRef.current) {
@@ -154,12 +180,13 @@ function EDITOR({ editorRef }: EditorProps = {}) {
           });
         }
       }
-    } else if (activeFile && activeFile.content.trim() === "") {
+    } else if (currentCode.trim() === '') {
       // Si hay un archivo activo pero está vacío, limpiar resultados
       console.log("📄 Editor vacío, limpiando resultados");
       setResult("");
+      lastExecutedCodeRef.current = '';
     }
-  }, [activeFile?.id, getCursorPosition, setResult]);
+  }, [activeFile, getCursorPosition, setResult, executeImmediately, isAutoExecutionEnabled, isLoadingSession]);
 
   // Actualizar autocompletado cuando cambien los paquetes instalados
   useEffect(() => {

@@ -17,12 +17,14 @@ export interface ExecutionStatus {
   isTypingActive?: boolean;
 }
 
-interface UseDebouncedCodeRunnerResult {
+export interface UseDebouncedCodeRunnerResult {
   debouncedRunner: (code: string) => void;
   handler: (value: string | undefined) => void;
   status: ExecutionStatus;
   cancelPending: () => void;
   forceExecute: () => void;
+  executeImmediately: (code: string) => void;
+  isAutoExecutionEnabled: boolean;
 }
 
 export const useDebouncedCodeRunner = ({ 
@@ -436,6 +438,63 @@ export const useDebouncedCodeRunner = ({
     }
   }, [runCode, cancelPending, updateStatus, utils]);
 
+  // Función para ejecutar código inmediatamente sin debounce 
+  // (útil para ejecución inicial al cargar la aplicación)
+  const executeImmediately = useCallback(async (code: string) => {
+    // Verificar si es el mismo código que la última ejecución
+    if (code === lastCodeRef.current) {
+      console.log('⏭️ Código ya ejecutado, evitando duplicación');
+      
+      // Actualizar estado a idle sin ejecutar de nuevo
+      updateStatus({
+        type: 'idle',
+        message: 'Código ya ejecutado anteriormente',
+      });
+      
+      return;
+    }
+    
+    // Cancelar cualquier ejecución pendiente
+    cancelPending();
+    
+    // Si el código está vacío, limpiar y salir
+    if (!code || code.trim() === '') {
+      updateStatus({
+        type: 'cleared',
+        message: 'Código vacío, resultados limpiados',
+      });
+      onCodeClear?.();
+      return;
+    }
+    
+    try {
+      // Actualizar estado a ejecutando
+      updateStatus({
+        type: 'executing',
+        message: '⚡ Ejecutando código inicial...',
+      });
+      
+      // Guardar el código como último procesado
+      lastCodeRef.current = code;
+      pendingCodeRef.current = code;
+      lastChangeTimeRef.current = Date.now();
+      
+      // Ejecutar sin delay
+      await runCode(code);
+      
+      // Actualizar estado a completado
+      updateStatus({
+        type: 'idle',
+        message: '✅ Ejecución inicial completada',
+      });
+    } catch (error) {
+      updateStatus({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Error en ejecución inicial',
+      });
+    }
+  }, [runCode, cancelPending, updateStatus, onCodeClear]);
+
   // Limpiar timeouts al desmontar
   useEffect(() => {
     return () => {
@@ -455,5 +514,7 @@ export const useDebouncedCodeRunner = ({
     status,
     cancelPending,
     forceExecute,
+    executeImmediately,
+    isAutoExecutionEnabled: autoExecutionConfig.enabled
   };
 }; 
