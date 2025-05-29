@@ -1,6 +1,7 @@
 import { createCustomConsole } from "./console-api";
 import { createReactContext, createJSXRuntime } from "./react-context";
 import { ModuleSystem } from "./module-system";
+import { GLOBAL_CONTEXT_CONFIG } from '../../constants/config';
 
 /**
  * Implementación de funciones de diálogo personalizadas
@@ -57,26 +58,45 @@ const createProcess = () => ({
 
 /**
  * Crea un contexto global completo para la ejecución de JavaScript
+ * @param dynamicConfig - Configuraciones dinámicas opcionales
  * @returns Objeto con el contexto global completo
  */
-export const createGlobalContext = () => {
+export const createGlobalContext = (dynamicConfig?: {
+  enableWebAPIs?: boolean;
+  enableNodeAPIs?: boolean;
+  enableReactAPIs?: boolean;
+  strictMode?: boolean;
+  sandboxLevel?: 'low' | 'medium' | 'high';
+}) => {
+  // Configuración por defecto usando los valores centralizados
+  const config = {
+    enableWebAPIs: true,
+    enableNodeAPIs: true,
+    enableReactAPIs: true,
+    strictMode: false,
+    sandboxLevel: GLOBAL_CONTEXT_CONFIG.SANDBOX_LEVEL,
+    ...dynamicConfig,
+  };
+
   // Crear instancias de los diferentes contextos
   const React = createReactContext();
   const jsxRuntime = createJSXRuntime(React);
   const moduleSystem = new ModuleSystem();
   const customConsole = createCustomConsole();
   const dialogFunctions = createDialogFunctions();
-  const webAPIs = createWebAPIs();
+  const webAPIs = config.enableWebAPIs ? createWebAPIs() : {};
   const process = createProcess();
 
-  // Registrar React en el sistema de módulos
-  moduleSystem.registerReact(React, jsxRuntime);
+  // Registrar React en el sistema de módulos si está habilitado
+  if (config.enableReactAPIs) {
+    moduleSystem.registerReact(React, jsxRuntime);
+  }
 
   // Crear función require
   const customRequire = moduleSystem.createRequire();
 
   const globalObj = {
-    // APIs básicas de JavaScript
+    // APIs básicas de JavaScript (siempre disponibles)
     setTimeout,
     setInterval,
     clearTimeout,
@@ -107,46 +127,54 @@ export const createGlobalContext = () => {
     encodeURI,
     decodeURI,
 
-    // APIs Web importantes
-    ...webAPIs,
-
-    // Funciones de diálogo
-    alert: dialogFunctions.customAlert,
-    confirm: dialogFunctions.customConfirm,
-    prompt: dialogFunctions.customPrompt,
-
     // Constantes globales
     undefined,
     NaN,
     Infinity,
 
-    // React disponible globalmente
-    React,
-
-    // Hooks disponibles globalmente para JSX sin imports
-    useState: React.useState,
-    useEffect: React.useEffect,
-    useContext: React.useContext,
-    useReducer: React.useReducer,
-    useMemo: React.useMemo,
-    useCallback: React.useCallback,
-    useRef: React.useRef,
-
-    // Sistema de módulos
-    require: customRequire,
-    module: { exports: {} },
-    exports: {},
-
-    // Variables de entorno personalizadas
-    process,
-
     // Console personalizado completo
     console: customConsole,
+
+    // APIs condicionales basadas en configuración
+    ...(config.enableWebAPIs && webAPIs),
+
+    // Funciones de diálogo (restringidas en sandbox alto)
+    ...(config.sandboxLevel !== 'high' && {
+      alert: dialogFunctions.customAlert,
+      confirm: dialogFunctions.customConfirm,
+      prompt: dialogFunctions.customPrompt,
+    }),
+
+    // React y hooks (condicionales)
+    ...(config.enableReactAPIs && {
+      React,
+      useState: React.useState,
+      useEffect: React.useEffect,
+      useContext: React.useContext,
+      useReducer: React.useReducer,
+      useMemo: React.useMemo,
+      useCallback: React.useCallback,
+      useRef: React.useRef,
+    }),
+
+    // Sistema de módulos (condicional)
+    ...(config.enableNodeAPIs && {
+      require: customRequire,
+      module: { exports: {} },
+      exports: {},
+      process,
+    }),
 
     // Funciones de utilidad para el sistema de módulos
     __registerModule: (name: string, module: any) => 
       moduleSystem.registerModule(name, module),
     __getAvailableModules: () => moduleSystem.getAvailableModules(),
+    
+    // Información de configuración (solo en modo desarrollo)
+    ...(config.sandboxLevel === 'low' && {
+      __CONFIG__: config,
+      __SANDBOX_LEVEL__: config.sandboxLevel,
+    }),
   };
 
   return globalObj;

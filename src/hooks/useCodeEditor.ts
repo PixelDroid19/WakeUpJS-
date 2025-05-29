@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { run, transformCode } from '../lib/code/run';
+import { globalExecutionEngine, syncEngineWithDynamicConfig } from '../lib/code/execution-engine';
+import { useExecutionAdvancedConfig, useGlobalContextConfig } from '../context/ConfigContext';
 import { CodeLogger } from '../lib/code/errorHandler';
 import { EDITOR_CONFIG } from '../constants/config';
 import type { ErrorInfo } from '../context/CodeContext';
@@ -12,6 +14,8 @@ interface UseCodeEditorResult {
   error: string | null;
   errorInfo: ErrorInfo | null;
   clearError: () => void;
+  executionMetrics: any; // Métricas del motor de ejecución
+  cancelExecution: (id?: string) => void;
 }
 
 interface UseCodeEditorParams {
@@ -24,15 +28,42 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
   const [isTransforming, setIsTransforming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
+  const [executionMetrics, setExecutionMetrics] = useState<any>(null);
   const monacoRef = useRef<any>(null);
+  const currentExecutionIdRef = useRef<string | null>(null);
+
+  // Configuraciones dinámicas
+  const executionConfig = useExecutionAdvancedConfig();
+  const globalContextConfig = useGlobalContextConfig();
+
+  // Sincronizar configuraciones con el motor de ejecución
+  useEffect(() => {
+    syncEngineWithDynamicConfig({
+      execution: executionConfig,
+      globalContext: globalContextConfig,
+    });
+  }, [executionConfig, globalContextConfig]);
 
   const clearError = () => {
     setError(null);
     setErrorInfo(null);
   };
 
+  const cancelExecution = (id?: string) => {
+    if (id) {
+      globalExecutionEngine.cancel(id);
+    } else if (currentExecutionIdRef.current) {
+      globalExecutionEngine.cancel(currentExecutionIdRef.current);
+    }
+    setIsRunning(false);
+    setIsTransforming(false);
+  };
+
   const runCode = async (code: string) => {
-    if (isRunning) return;
+    if (isRunning) {
+      // Si ya hay una ejecución en curso, cancelarla
+      cancelExecution();
+    }
     
     // Si el código está vacío o solo contiene espacios, limpiar resultados y salir silenciosamente
     if (!code || code.trim() === "") {
@@ -40,65 +71,119 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
       setIsTransforming(false);
       clearError();
       onResult(""); // Limpiar resultados
-      onCodeChange(code); // Actualizar código en contexto
+      setExecutionMetrics(null);
       CodeLogger.log('info', 'Hook: Código vacío, limpiando resultados silenciosamente');
       return;
     }
     
-    // Código con contenido real - ejecutar normalmente
+    // Código con contenido real - ejecutar con el motor profesional
     setIsRunning(true);
     setIsTransforming(true);
     clearError();
     onResult(""); // Limpiar resultados anteriores
 
-    CodeLogger.log('info', 'Hook: Iniciando ejecución de código', { codeLength: code.length });
+    CodeLogger.log('info', 'Hook: Iniciando ejecución con motor profesional', { 
+      codeLength: code.length,
+      engineMetrics: globalExecutionEngine.getMetrics()
+    });
 
     try {
-      // Transformar código
-      const transformed = transformCode(code);
+      // Ejecutar usando el motor de ejecución profesional
+      const executionResult = await globalExecutionEngine.execute(code, {
+        priority: 1, // Alta prioridad para ejecuciones del editor
+        bypassCache: false // Usar cache para optimizar rendimiento
+      });
+
+      currentExecutionIdRef.current = executionResult.id;
+      setExecutionMetrics(executionResult.metrics);
       setIsTransforming(false);
 
-      // Ejecutar código
-      const element = await run(transformed);
-      
-      // Procesar resultados
-      if (element instanceof Error) {
-        const errorMessage = element.message;
+      // Procesar resultados según el estado de la ejecución
+      if (executionResult.status === 'success') {
+        if (executionResult.fromCache) {
+          CodeLogger.log('info', 'Hook: Resultado obtenido desde cache', {
+            executionId: executionResult.id,
+            cacheHit: true,
+            duration: executionResult.duration
+          });
+        }
+
+        // Para mantener compatibilidad, transformar el resultado al formato esperado
+        const transformedResult = await transformResultForCompatibility(code, executionResult.result);
+        onResult(transformedResult);
+        
+        CodeLogger.log('info', 'Hook: Ejecución completada exitosamente', { 
+          executionId: executionResult.id,
+          duration: executionResult.duration,
+          fromCache: executionResult.fromCache,
+          complexity: executionResult.metrics.codeComplexity
+        });
+        
+      } else if (executionResult.status === 'error' && executionResult.error) {
+        const errorMessage = executionResult.error.message;
         setError(errorMessage);
         onResult([{ element: { content: errorMessage }, type: "error" }]);
-        CodeLogger.log('error', 'Hook: Error en ejecución', { error: errorMessage });
-      } else {
-        // Verificar si hay errores en los resultados
-        const hasErrors = Array.isArray(element) && element.some(item => item.type === 'error');
-        if (hasErrors) {
-          const errorResult = element.find(item => item.type === 'error');
-          if (errorResult) {
-            setError(errorResult.element.content);
-            setErrorInfo(errorResult.errorInfo || null);
-          }
-        }
         
-        onResult(element);
-        CodeLogger.log('info', 'Hook: Ejecución completada exitosamente', { 
-          resultCount: Array.isArray(element) ? element.length : 1,
-          isEmpty: code.trim() === '' 
+        CodeLogger.log('error', 'Hook: Error en ejecución profesional', { 
+          error: errorMessage,
+          errorType: executionResult.error.type,
+          severity: executionResult.error.severity,
+          recoverable: executionResult.error.recoverable
+        });
+        
+      } else if (executionResult.status === 'timeout') {
+        const timeoutMessage = 'La ejecución fue cancelada por timeout';
+        setError(timeoutMessage);
+        onResult([{ element: { content: timeoutMessage }, type: "error" }]);
+        
+        CodeLogger.log('warn', 'Hook: Timeout en ejecución', {
+          executionId: executionResult.id,
+          duration: executionResult.duration
+        });
+        
+      } else if (executionResult.status === 'cancelled') {
+        const cancelMessage = 'La ejecución fue cancelada';
+        onResult([{ element: { content: cancelMessage }, type: "info" }]);
+        
+        CodeLogger.log('info', 'Hook: Ejecución cancelada', {
+          executionId: executionResult.id
         });
       }
       
-      // Actualizar código en contexto
-      onCodeChange(code);
-      
     } catch (error: any) {
-      const errorMessage = error.message || 'Error desconocido';
-      console.error('Error ejecutando código:', error);
+      const errorMessage = error.message || 'Error desconocido en motor de ejecución';
+      console.error('Error en motor de ejecución:', error);
       
       setError(errorMessage);
       onResult([{ element: { content: errorMessage }, type: "error" }]);
       setIsTransforming(false);
       
-      CodeLogger.log('error', 'Hook: Error no capturado', { error: errorMessage, stack: error.stack });
+      CodeLogger.log('error', 'Hook: Error crítico en motor', { 
+        error: errorMessage, 
+        stack: error.stack 
+      });
     } finally {
       setIsRunning(false);
+      currentExecutionIdRef.current = null;
+    }
+  };
+
+  // Método para mantener compatibilidad con el sistema anterior
+  const transformResultForCompatibility = async (code: string, engineResult: any) => {
+    try {
+      // Si el resultado del motor es simple, usar el sistema de transformación actual
+      if (engineResult && typeof engineResult === 'object' && engineResult.output) {
+        // El motor devuelve un resultado simulado, usar el sistema real
+        const transformed = transformCode(code);
+        return await run(transformed);
+      }
+      
+      return engineResult;
+    } catch (error) {
+      // Fallback al sistema anterior en caso de problemas
+      CodeLogger.log('warn', 'Fallback al sistema de ejecución anterior', { error });
+      const transformed = transformCode(code);
+      return await run(transformed);
     }
   };
 
@@ -110,5 +195,7 @@ export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): 
     error,
     errorInfo,
     clearError,
+    executionMetrics,
+    cancelExecution,
   };
 }; 

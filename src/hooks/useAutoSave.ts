@@ -1,12 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { useAutoSaveConfig } from '../context/ConfigContext';
 import type { ExecutionStatus } from './useDebouncedCodeRunner';
 
 interface AutoSaveOptions {
-  enabled: boolean;
-  interval: number; // en milisegundos
-  debounceDelay: number;
-  executionStatus?: ExecutionStatus; // Nuevo: estado del debounce
+  executionStatus?: ExecutionStatus; // Estado del debounce
 }
 
 interface SessionData {
@@ -22,21 +20,16 @@ interface SessionData {
   };
 }
 
-// Configuración predeterminada
-const DEFAULT_CONFIG: AutoSaveOptions = {
-  enabled: true,
-  interval: 5000,
-  debounceDelay: 1000
-};
-
 export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
   const { state, actions, utils } = useWorkspace();
+  const autoSaveConfig = useAutoSaveConfig();
   
-  // Configuración mezclada con valores predeterminados
+  // Configuración mezclada con valores de la configuración centralizada
   const config = {
-    ...DEFAULT_CONFIG,
-    ...options,
-    enabled: state.settings?.autoSave !== undefined ? state.settings.autoSave : DEFAULT_CONFIG.enabled
+    enabled: autoSaveConfig.enabled,
+    interval: autoSaveConfig.interval,
+    debounceDelay: autoSaveConfig.debounceDelay,
+    ...options
   };
 
   // Referencias para manejar el estado entre renderizados
@@ -68,7 +61,6 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
       if (executionStatus.isTypingActive || 
           executionStatus.type === 'pending' || 
           executionStatus.type === 'debouncing') {
-        console.log('⏸️ Pausando autosave: usuario escribiendo activamente');
         return false;
       }
     }
@@ -245,7 +237,7 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
     return hash;
   };
 
-  // Debounced save - ahora respeta el estado de escritura
+  // Debounced save - ahora respeta el estado de escritura y reduce logging
   const debouncedSave = useCallback(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -256,13 +248,12 @@ export function useAutoSave(options: Partial<AutoSaveOptions> = {}) {
       if (isSafeToSave()) {
         saveSession();
       } else {
-        console.log('⏸️ Guardado debounced pausado - usuario escribiendo');
         // Reprogramar para más tarde cuando sea seguro
         setTimeout(() => {
           if (isSafeToSave()) {
             saveSession();
           }
-        }, 500); // Reintentar en 500ms
+        }, 1000); // Reintentar en 1 segundo
       }
     }, config.debounceDelay);
   }, [saveSession, config.debounceDelay, isSafeToSave]);

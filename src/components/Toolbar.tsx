@@ -15,6 +15,7 @@ import { useSplitLayout } from "../hooks/useSplitLayout";
 import { useToolbar } from "../context/ToolbarContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useSnippets } from "../context/SnippetsContext";
+import { useConfig } from "../context/ConfigContext";
 import { insertSnippet } from "../lib/monaco/snippetProvider";
 import {
   ArrowRightLeft,
@@ -28,6 +29,9 @@ import {
   Pause,
   Code2,
   EyeOff,
+  Zap,
+  PlayCircle,
+  SaveAll,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import React from "react";
@@ -63,6 +67,7 @@ function Toolbar({
   const { config, toggleSettings } = useToolbar();
   const { state, actions, utils } = useWorkspace();
   const { state: snippetsState, actions: snippetsActions } = useSnippets();
+  const { config: configState, toggleAutoSave, toggleAutoExecution } = useConfig();
 
   // Obtener información del workspace
   const activeFile = utils.getActiveFile();
@@ -749,6 +754,40 @@ function Toolbar({
               </button>
             </SmartTooltip>
           )}
+
+          {/* Toggle Auto Guardado */}
+          <SmartTooltip
+            text={`Auto Guardado: ${configState.autoSave.enabled ? 'Activado' : 'Desactivado'}`}
+          >
+            <button
+              onClick={toggleAutoSave}
+              className={getButtonClasses(configState.autoSave.enabled ? "success" : "secondary")}
+            >
+              <SaveAll size={iconSize} className={configState.autoSave.enabled ? "text-green-300" : "text-gray-400"} />
+              {config.size !== "sm" && (
+                <span className="ml-2">
+                  {configState.autoSave.enabled ? "Auto Save" : "Save Off"}
+                </span>
+              )}
+            </button>
+          </SmartTooltip>
+
+          {/* Toggle Auto Ejecución */}
+          <SmartTooltip
+            text={`Auto Ejecución: ${configState.autoExecution.enabled ? 'Activado' : 'Desactivado'}`}
+          >
+            <button
+              onClick={toggleAutoExecution}
+              className={getButtonClasses(configState.autoExecution.enabled ? "primary" : "secondary")}
+            >
+              <PlayCircle size={iconSize} className={configState.autoExecution.enabled ? "text-blue-300" : "text-gray-400"} />
+              {config.size !== "sm" && (
+                <span className="ml-2">
+                  {configState.autoExecution.enabled ? "Auto Run" : "Run Off"}
+                </span>
+              )}
+            </button>
+          </SmartTooltip>
 
           {/* Botón de cancelación */}
           {canCancel && onCancelExecution && (

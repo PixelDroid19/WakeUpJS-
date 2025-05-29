@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useCallback } from "react";
+import { useContext, useEffect, useRef, useCallback, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { CodeResultContext } from "../context/CodeContext";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -16,6 +16,7 @@ import {
   refreshSnippets,
 } from "../lib/monaco/monacoSetup";
 import ExecutionStatusIndicator from "./ExecutionStatusIndicator";
+import ExecutionDashboard from "./ExecutionDashboard";
 
 interface EditorProps {
   editorRef?: React.MutableRefObject<any>;
@@ -26,6 +27,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const { actions, utils } = useWorkspace();
   const { installedPackages } = usePackageManager();
   const { state: snippetsState, actions: snippetsActions } = useSnippets();
+  const [isDashboardVisible, setIsDashboardVisible] = useState(false);
 
   // Referencia para Monaco y el editor
   const monacoInstanceRef = useRef<any>(null);
@@ -44,6 +46,8 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     error,
     errorInfo,
     clearError,
+    executionMetrics,
+    cancelExecution,
   } = useCodeEditor({
     onResult: setResult,
     onCodeChange: (code: string) => {
@@ -68,7 +72,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       },
     });
 
-  // Hook de autosave con integración al debounce inteligente
+  // Hook de autosave con integración al debounce inteligente optimizado
   const {
     saveSession,
     loadSession,
@@ -78,10 +82,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     isAutoSaveEnabled,
     isLoadingSession,
   } = useAutoSave({
-    enabled: true,
-    interval: 5000, // Guardar cada 5 segundos
-    debounceDelay: 1000, // Delay de 1 segundo tras parar de escribir
-    executionStatus: status, // 🔄 Nuevo: integración con debounce inteligente
+    executionStatus: status, 
   });
 
   // Referencia para evitar cargas múltiples
@@ -89,6 +90,12 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
   // Referencias adicionales para controlar ejecución automática
   const sessionJustLoadedRef = useRef(false);
+  const runCodeRef = useRef(runCode);
+
+  // Actualizar la ref cuando runCode cambie
+  useEffect(() => {
+    runCodeRef.current = runCode;
+  }, [runCode]);
 
   // Cargar sesión al montar el componente (solo una vez)
   useEffect(() => {
@@ -116,7 +123,11 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     // No ejecutar si acabamos de cargar una sesión (esperar eventos de usuario)
     if (sessionJustLoadedRef.current) {
       // Solo restaurar posición del cursor sin ejecutar
-      if (activeFile && editorInstanceRef.current && monacoInstanceRef.current) {
+      if (
+        activeFile &&
+        editorInstanceRef.current &&
+        monacoInstanceRef.current
+      ) {
         const savedPosition = getCursorPosition(activeFile.id);
         if (savedPosition) {
           editorInstanceRef.current.setPosition({
@@ -131,7 +142,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     // Si hay contenido no vacío, ejecutarlo automáticamente
     if (activeFile?.content && activeFile.content.trim() !== "") {
       console.log("🔄 Auto-ejecutando código existente");
-      runCode(activeFile.content);
+      runCodeRef.current(activeFile.content); // Usar la ref estable
 
       // Restaurar posición del cursor
       if (editorInstanceRef.current && monacoInstanceRef.current) {
@@ -148,7 +159,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       console.log("📄 Editor vacío, limpiando resultados");
       setResult("");
     }
-  }, [activeFile?.id, getCursorPosition, runCode, setResult]);
+  }, [activeFile?.id, getCursorPosition, setResult]);
 
   // Actualizar autocompletado cuando cambien los paquetes instalados
   useEffect(() => {
@@ -283,6 +294,22 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
   return (
     <div className="relative h-full">
+      {/* Botón del Dashboard */}
+      <button
+        onClick={() => setIsDashboardVisible(true)}
+        className="absolute top-2 right-4 z-20 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
+        title="Abrir Dashboard de Métricas"
+      >
+        📊 Métricas
+      </button>
+
+      {/* Dashboard Modal */}
+      <ExecutionDashboard
+        isVisible={isDashboardVisible}
+        onClose={() => setIsDashboardVisible(false)}
+        currentMetrics={executionMetrics}
+      />
+
       {/* Indicador de estado de ejecución */}
       <ExecutionStatusIndicator
         status={status}

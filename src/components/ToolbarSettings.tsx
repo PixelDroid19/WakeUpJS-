@@ -1,15 +1,15 @@
 /**
  * ToolbarSettings Component
- * 
+ *
  * Panel de configuración del toolbar con múltiples opciones:
  * - Temas (dark, light, blue, purple, green, custom)
  * - Tamaños (sm, md, lg)
  * - Modos (normal, floating, minimal, compact)
  * - Posiciones (top, bottom, left, right)
  * - Opciones de visibilidad
- * 
+ *
  * Configuración por defecto: tema dark, tamaño md, modo floating, posición bottom
- * 
+ *
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   ToolbarMode,
   ToolbarPosition,
 } from "../context/ToolbarContext";
+import { useConfig } from "../context/ConfigContext";
 import {
   X,
   Palette,
@@ -32,7 +33,12 @@ import {
   Eye,
   EyeOff,
   Hash,
+  Save,
+  Play,
+  Zap,
+  Settings,
 } from "lucide-react";
+import { ConfigProfiles } from "./ConfigProfiles";
 import { useState } from "react";
 
 const themes: {
@@ -172,8 +178,145 @@ const positions: { value: ToolbarPosition; label: string; icon: string }[] = [
   { value: "right", label: "Derecha", icon: "➡️" },
 ];
 
+// Componente para configuraciones de Auto Guardado
+const AutoSaveSettings = () => {
+  const { config, toggleAutoSave, updateAutoSaveInterval } = useConfig();
+
+  return (
+    <div className="p-4 bg-gray-800 border border-gray-700 rounded-lg">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <Save size={16} className="text-green-400" />
+          <div>
+            <span className="text-sm text-gray-300 font-medium">
+              Auto Guardado
+            </span>
+            <div className="text-xs text-gray-500">
+              Guarda automáticamente los cambios
+            </div>
+          </div>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.autoSave.enabled}
+            onChange={toggleAutoSave}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
+
+      {config.autoSave.enabled && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-2">
+              Intervalo de guardado:{" "}
+              {Math.round(config.autoSave.interval / 1000)}s
+            </label>
+            <input
+              type="range"
+              min="3000"
+              max="30000"
+              step="1000"
+              value={config.autoSave.interval}
+              onChange={(e) => updateAutoSaveInterval(parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>3s</span>
+              <span>30s</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Componente para configuraciones de Auto Ejecución
+const AutoExecutionSettings = () => {
+  const {
+    config,
+    toggleAutoExecution,
+    toggleSmartDebounce,
+    updateDebounceTime,
+  } = useConfig();
+
+  return (
+    <div className="p-4 bg-gray-800 border border-gray-700 rounded-lg">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <Play size={16} className="text-blue-400" />
+          <div>
+            <span className="text-sm text-gray-300 font-medium">
+              Auto Ejecución
+            </span>
+            <div className="text-xs text-gray-500">
+              Ejecuta código automáticamente al escribir
+            </div>
+          </div>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.autoExecution.enabled}
+            onChange={toggleAutoExecution}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
+
+      {config.autoExecution.enabled && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-2">
+              Tiempo de debounce: {config.autoExecution.debounceTime}ms
+            </label>
+            <input
+              type="range"
+              min="100"
+              max="2000"
+              step="50"
+              value={config.autoExecution.debounceTime}
+              onChange={(e) => updateDebounceTime(parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>100ms</span>
+              <span>2s</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-3 bg-gray-700 rounded">
+            <div>
+              <div className="text-xs font-medium text-gray-300">
+                Smart Debounce
+              </div>
+              <div className="text-xs text-gray-500">
+                Ajusta automáticamente según el tipo de cambio
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.autoExecution.enableSmartDebounce}
+                onChange={toggleSmartDebounce}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 function ToolbarSettings() {
   const { config, updateConfig, showSettings, toggleSettings } = useToolbar();
+  const { config: configState } = useConfig();
   const [customColors, setCustomColors] = useState(
     config.customColors || {
       background: "#1f2937",
@@ -183,7 +326,7 @@ function ToolbarSettings() {
     }
   );
   const [activeTab, setActiveTab] = useState<
-    "appearance" | "behavior" | "advanced"
+    "appearance" | "behavior" | "performance" | "advanced"
   >("appearance");
 
   if (!showSettings) return null;
@@ -201,7 +344,6 @@ function ToolbarSettings() {
   };
 
   const TabButton = ({
-    tab,
     label,
     isActive,
     onClick,
@@ -270,6 +412,12 @@ function ToolbarSettings() {
               label="Comportamiento"
               isActive={activeTab === "behavior"}
               onClick={() => setActiveTab("behavior")}
+            />
+            <TabButton
+              tab="performance"
+              label="Rendimiento"
+              isActive={activeTab === "performance"}
+              onClick={() => setActiveTab("performance")}
             />
             <TabButton
               tab="advanced"
@@ -410,6 +558,21 @@ function ToolbarSettings() {
           {/* Tab: Comportamiento */}
           {activeTab === "behavior" && (
             <div className="space-y-6">
+              {/* Auto Funcionalidades */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+                  <Zap size={16} />
+                  Auto Funcionalidades
+                </label>
+                <div className="space-y-4">
+                  {/* Auto Guardado */}
+                  <AutoSaveSettings />
+
+                  {/* Auto Ejecución */}
+                  <AutoExecutionSettings />
+                </div>
+              </div>
+
               {/* Modo */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-3">
@@ -498,12 +661,12 @@ function ToolbarSettings() {
             </div>
           )}
 
-          {/* Tab: Avanzado */}
-          {activeTab === "advanced" && (
+          {/* Tab: Rendimiento */}
+          {activeTab === "performance" && (
             <div className="space-y-6">
               {/* Opciones de visibilidad */}
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+                <label className=" text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
                   <Eye size={16} />
                   Elementos visibles
                 </label>
@@ -615,7 +778,163 @@ function ToolbarSettings() {
                       </div>
                     </div>
                   </div>
+                  <div className="mt-3 space-y-1 text-xs text-gray-500">
+                    <p>
+                      Auto guardado:{" "}
+                      {configState.autoSave.enabled
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                    <p>
+                      Auto ejecución:{" "}
+                      {configState.autoExecution.enabled
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                  </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Avanzado */}
+          {activeTab === "advanced" && (
+            <div className="space-y-6">
+              {/* Opciones de visibilidad */}
+              <div>
+                <label className=" text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+                  <Eye size={16} />
+                  Elementos visibles
+                </label>
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between p-4 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-750 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <Hash
+                        size={16}
+                        className="text-gray-400 group-hover:text-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm text-gray-300 font-medium">
+                          Contador de resultados
+                        </span>
+                        <div className="text-xs text-gray-500">
+                          Muestra el número de resultados de ejecución
+                        </div>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={config.showResultCount}
+                      onChange={(e) =>
+                        updateConfig({ showResultCount: e.target.checked })
+                      }
+                      className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 transition-colors"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-4 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-750 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <Layout
+                        size={16}
+                        className="text-gray-400 group-hover:text-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm text-gray-300 font-medium">
+                          Título de la aplicación
+                        </span>
+                        <div className="text-xs text-gray-500">
+                          Muestra el estado y título en el toolbar
+                        </div>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={config.showTitle}
+                      onChange={(e) =>
+                        updateConfig({ showTitle: e.target.checked })
+                      }
+                      className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 transition-colors"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-4 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-750 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <EyeOff
+                        size={16}
+                        className="text-gray-400 group-hover:text-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm text-gray-300 font-medium">
+                          Ocultar valores undefined
+                        </span>
+                        <div className="text-xs text-gray-500">
+                          No muestra resultados undefined en la ejecución
+                        </div>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={config.hideUndefined}
+                      onChange={(e) =>
+                        updateConfig({ hideUndefined: e.target.checked })
+                      }
+                      className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 transition-colors"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Información de configuración */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-3">
+                  Configuración Central
+                </label>
+                <div className="p-4 bg-gray-800 border border-gray-700 rounded-lg">
+                  <div className="text-xs text-gray-500 mb-2">
+                    Estado actual de configuración:
+                  </div>
+                  <div className="space-y-2 text-xs text-gray-300">
+                    <p>
+                      • Auto guardado:{" "}
+                      {configState.autoSave.enabled
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                    <p>
+                      • Auto ejecución:{" "}
+                      {configState.autoExecution.enabled
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                    <p>
+                      • Smart debounce:{" "}
+                      {configState.smartDebounce.enabled
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                    <p>
+                      • Cache de ejecución:{" "}
+                      {configState.executionAdvanced.enableCache
+                        ? "Activado"
+                        : "Desactivado"}
+                    </p>
+                    <p>
+                      • Métricas de ejecución:{" "}
+                      {configState.executionAdvanced.enableMetrics
+                        ? "Activadas"
+                        : "Desactivadas"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Perfiles de Configuración */}
+              <div>
+                <label className=" text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                  <Settings size={16} />
+                  Perfiles de Configuración
+                </label>
+                <ConfigProfiles />
               </div>
             </div>
           )}

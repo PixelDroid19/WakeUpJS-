@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { EDITOR_CONFIG } from '../constants/config';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { useAutoExecutionConfig, useSmartDebounceConfig } from '../context/ConfigContext';
 
 interface UseDebouncedCodeRunnerParams {
   runCode: (code: string) => Promise<void>;
@@ -33,6 +33,10 @@ export const useDebouncedCodeRunner = ({
   
   // Obtener acceso al workspace para validaciones
   const { utils } = useWorkspace();
+  
+  // Obtener configuraciones desde el contexto centralizado
+  const autoExecutionConfig = useAutoExecutionConfig();
+  const smartDebounceConfig = useSmartDebounceConfig();
   
   // Estado del ejecutor
   const [status, setStatus] = useState<ExecutionStatus>({ type: 'idle' });
@@ -76,11 +80,19 @@ export const useDebouncedCodeRunner = ({
     return (wasNotEmpty && isNowEmpty) || (isNowEmpty && oldCode === '');
   }, []);
   
-  // Función para detectar cambios masivos (más del 20% del contenido)
+  // Función para detectar cambios masivos (mejorada para mejor detección)
   const isMassiveChange = useCallback((newCode: string, oldCode: string): boolean => {
     const changeSize = Math.abs(newCode.length - oldCode.length);
     const maxLength = Math.max(newCode.length, oldCode.length);
-    return maxLength > 0 && (changeSize / maxLength) > 0.2;
+    
+    // Un cambio es masivo si:
+    // 1. Cambia más del 30% del contenido Y es más de 10 caracteres
+    // 2. O si es un cambio muy grande (más de 100 caracteres)
+    const percentageChange = maxLength > 0 ? (changeSize / maxLength) : 0;
+    const isMassiveByPercentage = percentageChange > 0.3 && changeSize > 10;
+    const isMassiveBySize = changeSize > 100;
+    
+    return isMassiveByPercentage || isMassiveBySize;
   }, []);
   
   // Función para validar que el código sea consistente entre fuentes
@@ -113,37 +125,46 @@ export const useDebouncedCodeRunner = ({
   const isActivelyTyping = useCallback((): boolean => {
     const now = Date.now();
     const timeSinceLastChange = now - lastChangeTimeRef.current;
-    return timeSinceLastChange < EDITOR_CONFIG.SMART_DEBOUNCE.TYPING_PAUSE_THRESHOLD;
-  }, []);
+    return timeSinceLastChange < smartDebounceConfig.typingPauseThreshold;
+  }, [smartDebounceConfig.typingPauseThreshold]);
 
   // Función para calcular el delay inteligente basado en el cambio
   const calculateSmartDelay = useCallback((currentCode: string, previousCode: string): number => {
+    // Si la auto ejecución está deshabilitada, usar un delay muy largo
+    if (!autoExecutionConfig.enabled) {
+      return 999999; // Prácticamente infinito - no ejecutar automáticamente
+    }
+
+    // Si smart debounce está deshabilitado, usar el debounce simple
+    if (!smartDebounceConfig.enabled) {
+      return autoExecutionConfig.debounceTime;
+    }
+
     const changeSize = Math.abs(currentCode.length - previousCode.length);
     const codeSize = currentCode.length;
-    const config = EDITOR_CONFIG.SMART_DEBOUNCE;
     const typingActive = isActivelyTyping();
     const isMassive = isMassiveChange(currentCode, previousCode);
     const isPaste = isPasteOperation(currentCode, previousCode);
     
-    let baseDelay: number = EDITOR_CONFIG.DEBOUNCE_TIME;
+    let baseDelay: number = autoExecutionConfig.debounceTime;
     
-    // Para pegado de código, ejecutar inmediatamente
+    // Para pegado de código, ejecutar inmediatamente si está habilitado
     if (isPaste) {
-      return 100; // Delay mínimo para pegado
+      return autoExecutionConfig.enabled ? 100 : 999999;
     }
     
     // Para cambios masivos, usar un delay más corto para respuesta rápida
     if (isMassive) {
-      baseDelay = config.SYNTAX_CHECK_DELAY; // Respuesta rápida para cambios masivos
+      baseDelay = smartDebounceConfig.syntaxCheckDelay;
       massiveChangeInProgressRef.current = true;
     } else {
       // Ajustar delay basado en el tamaño del cambio
-      if (changeSize <= config.SMALL_CHANGE_THRESHOLD) {
-        baseDelay = config.SYNTAX_CHECK_DELAY;
-      } else if (changeSize >= config.LARGE_CHANGE_THRESHOLD) {
-        baseDelay = config.FULL_EXECUTION_DELAY;
+      if (changeSize <= smartDebounceConfig.smallChangeThreshold) {
+        baseDelay = smartDebounceConfig.syntaxCheckDelay;
+      } else if (changeSize >= smartDebounceConfig.largeChangeThreshold) {
+        baseDelay = smartDebounceConfig.fullExecutionDelay;
       } else {
-        baseDelay = config.TYPE_CHECK_DELAY;
+        baseDelay = smartDebounceConfig.typeCheckDelay;
       }
       
       // Si el usuario está escribiendo activamente, incrementar el delay
@@ -153,19 +174,28 @@ export const useDebouncedCodeRunner = ({
     }
     
     // Bonus por tamaño del código (menos agresivo para cambios masivos)
-    const sizeFactor = isMassive ? 0.1 : 1; // Reducir impacto del tamaño en cambios masivos
+    const sizeFactor = isMassive ? 0.1 : 1;
     const sizeBonus = Math.min(
-      codeSize * config.SIZE_SCALING_FACTOR * sizeFactor,
-      config.MAX_SIZE_BONUS
+      codeSize * smartDebounceConfig.sizeScalingFactor * sizeFactor,
+      smartDebounceConfig.maxSizeBonus
     );
     
     const finalDelay = Math.round(baseDelay + sizeBonus);
     
     return finalDelay;
-  }, [isActivelyTyping, isMassiveChange, isPasteOperation]);
+  }, [isActivelyTyping, isMassiveChange, isPasteOperation, autoExecutionConfig, smartDebounceConfig]);
 
   // Función principal de debounce inteligente
   const debouncedRunner = useCallback((code: string) => {
+    // Si la auto ejecución está deshabilitada, no hacer nada
+    if (!autoExecutionConfig.enabled) {
+      updateStatus({
+        type: 'idle',
+        message: 'Auto ejecución deshabilitada',
+      });
+      return;
+    }
+
     const now = Date.now();
     const previousCode = lastCodeRef.current;
     const typingActive = isActivelyTyping();
@@ -234,14 +264,14 @@ export const useDebouncedCodeRunner = ({
     const smartDelay = calculateSmartDelay(code, previousCode);
     const changeSize = Math.abs(code.length - previousCode.length);
     
-    // Mensaje específico para diferentes tipos de cambio
-    let pendingMessage = 'Cambio detectado...';
+    // Mensaje específico para diferentes tipos de cambio (simplificado)
+    let pendingMessage = 'Preparando ejecución...';
     if (isPaste) {
-      pendingMessage = '📋 Código pegado, ejecutando automáticamente...';
+      pendingMessage = '📋 Ejecutando código pegado...';
     } else if (isMassive) {
-      pendingMessage = '📝 Cambio masivo detectado...';
+      pendingMessage = '📝 Procesando cambio grande...';
     } else if (typingActive) {
-      pendingMessage = '⌨️ Escribiendo activamente...';
+      pendingMessage = '⌨️ Esperando pausa...';
     }
     
     // Mostrar estado pending inmediatamente
@@ -259,7 +289,7 @@ export const useDebouncedCodeRunner = ({
         try {
           updateStatus({
             type: 'executing',
-            message: '⚡ Ejecutando código pegado...',
+            message: '⚡ Ejecutando...',
             lastChangeSize: changeSize,
             isTypingActive: false,
           });
@@ -269,7 +299,7 @@ export const useDebouncedCodeRunner = ({
           
           updateStatus({
             type: 'idle',
-            message: '✅ Código ejecutado exitosamente',
+            message: '✅ Completado',
           });
           
         } catch (error) {
@@ -283,28 +313,28 @@ export const useDebouncedCodeRunner = ({
       return;
     }
     
-    // Configurar timeout para mostrar estado de debouncing
+    // Configurar timeout para mostrar estado de debouncing (simplificado)
     statusTimeoutRef.current = setTimeout(() => {
       updateStatus({
         type: 'debouncing',
         message: isMassive
-          ? `Procesando cambio masivo (${Math.round(smartDelay / 100) / 10}s)...`
+          ? `Procesando... (${Math.round(smartDelay / 100) / 10}s)`
           : typingActive 
-            ? `Esperando pausa en escritura (${Math.round(smartDelay / 100) / 10}s)...`
-            : `Esperando ${Math.round(smartDelay / 100) / 10}s...`,
+            ? `Esperando pausa... (${Math.round(smartDelay / 100) / 10}s)`
+            : `Ejecutando en ${Math.round(smartDelay / 100) / 10}s...`,
         timeRemaining: smartDelay,
         lastChangeSize: changeSize,
         estimatedDelay: smartDelay,
         isTypingActive: typingActive,
       });
-    }, EDITOR_CONFIG.SMART_DEBOUNCE.SHOW_PENDING_AFTER);
+    }, smartDebounceConfig.showPendingAfter);
     
     // Configurar timeout principal de ejecución
     debounceTimeoutRef.current = setTimeout(async () => {
       try {
         updateStatus({
           type: 'executing',
-          message: 'Ejecutando código...',
+          message: '⚡ Ejecutando...',
           lastChangeSize: changeSize,
           isTypingActive: false,
         });
@@ -327,7 +357,7 @@ export const useDebouncedCodeRunner = ({
         
         updateStatus({
           type: 'idle',
-          message: 'Ejecución completada',
+          message: '✅ Completado',
         });
         
       } catch (error) {
@@ -339,7 +369,7 @@ export const useDebouncedCodeRunner = ({
       }
     }, smartDelay);
     
-  }, [runCode, updateStatus, calculateSmartDelay, isActivelyTyping, isMassiveChange, validateCodeConsistency, isPasteOperation, isCodeCleared, onCodeClear]);
+  }, [runCode, updateStatus, calculateSmartDelay, isActivelyTyping, isMassiveChange, validateCodeConsistency, isPasteOperation, isCodeCleared, onCodeClear, autoExecutionConfig, smartDebounceConfig.showPendingAfter]);
 
   // Handler mejorado que incluye validación
   const handler = useCallback((value: string | undefined) => {
@@ -383,7 +413,7 @@ export const useDebouncedCodeRunner = ({
       try {
         updateStatus({
           type: 'executing',
-          message: 'Ejecución forzada...',
+          message: '⚡ Ejecución forzada...',
         });
         
         // Actualizar referencias
@@ -394,7 +424,7 @@ export const useDebouncedCodeRunner = ({
         
         updateStatus({
           type: 'idle',
-          message: 'Ejecución forzada completada',
+          message: '✅ Completado',
         });
         
       } catch (error) {

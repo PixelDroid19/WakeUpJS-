@@ -13,6 +13,7 @@ import { PackageManager } from "./components/PackageManager";
 import EnvironmentVariables from "./components/EnvironmentVariables";
 import SnippetManager from "./components/SnippetManager";
 import { ToolbarProvider } from "./context/ToolbarContext";
+import { ConfigProvider } from "./context/ConfigContext";
 import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { PackageManagerProvider } from "./context/PackageManagerContext";
 import { SnippetsProvider } from "./context/SnippetsContext";
@@ -323,19 +324,21 @@ function App() {
     <>
       <CodeContext.Provider value={{ code, setCode }}>
         <CodeResultContext.Provider value={{ result, setResult }}>
-          <WorkspaceProvider>
-            <ToolbarProvider>
-              <PackageManagerProvider>
-                <SnippetsProvider>
-                  <Suspense fallback={<ContextErrorFallback />}>
-                    <ContextErrorBoundary>
-                      <SafeAppContent />
-                    </ContextErrorBoundary>
-                  </Suspense>
-                </SnippetsProvider>
-              </PackageManagerProvider>
-            </ToolbarProvider>
-          </WorkspaceProvider>
+          <ConfigProvider>
+            <WorkspaceProvider>
+              <ToolbarProvider>
+                <PackageManagerProvider>
+                  <SnippetsProvider>
+                    <Suspense fallback={<ContextErrorFallback />}>
+                      <ContextErrorBoundary>
+                        <SafeAppContent />
+                      </ContextErrorBoundary>
+                    </Suspense>
+                  </SnippetsProvider>
+                </PackageManagerProvider>
+              </ToolbarProvider>
+            </WorkspaceProvider>
+          </ConfigProvider>
         </CodeResultContext.Provider>
       </CodeContext.Provider>
     </>
