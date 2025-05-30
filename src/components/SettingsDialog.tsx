@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Check, Save, Moon, Sun, Type, Maximize, AlignLeft } from 'lucide-react';
+import { useState } from 'react';
+import { X, Check, Save, Moon, Type, AlignLeft } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 
 interface SettingsDialogProps {

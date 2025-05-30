@@ -154,7 +154,7 @@ class SecurityValidator {
 // MANEJO ROBUSTO DE ERRORES
 // ============================================
 
-class FormatterError extends Error {
+class _FormatterError extends Error {
   constructor(
     message: string,
     public readonly operation: string,

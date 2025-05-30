@@ -1,6 +1,20 @@
 import { languages, editor, Uri } from 'monaco-editor';
-import { PACKAGE_DEFINITIONS, getPackageDefinition, getPackageExports, generateTypeDeclaration } from './packageDefinitions';
-import type { Package } from '../../context/PackageManagerContext';
+import { PACKAGE_DEFINITIONS, getPackageDefinition, getPackageExports, generateTypeDeclaration } from '../packageDefinitions';
+import type { Package } from '../../../context/PackageManagerContext';
+
+/**
+ * ========================
+ * 📦 MÓDULO DE PACKAGE COMPLETION
+ * ========================
+ * 
+ * Este módulo maneja el autocompletado de paquetes e imports en Monaco.
+ * 
+ * Responsabilidades:
+ * - Completion providers para imports y paquetes
+ * - Detección de contextos de import
+ * - Registro de tipos de paquetes
+ * - Cache de completions
+ */
 
 // Tipos para el autocompletado
 interface CompletionItem {
@@ -266,7 +280,7 @@ export function registerPackageTypes(monaco: any): void {
       }
     });
     
-    
+    console.log("✅ Tipos de paquetes registrados");
   } catch (error) {
     console.warn('Error registrando tipos de paquetes:', error);
   }
@@ -275,6 +289,8 @@ export function registerPackageTypes(monaco: any): void {
 // Función para configurar el autocompletado de paquetes en Monaco
 export function setupPackageCompletion(monaco: any): () => void {
   try {
+    console.log("📦 Configurando package completion");
+    
     // Registrar el provider de autocompletado para JavaScript
     const jsDisposable = monaco.languages.registerCompletionItemProvider(
       'javascript',
@@ -317,7 +333,7 @@ export function setupPackageCompletion(monaco: any): () => void {
       typeRoots: ["node_modules/@types"]
     });
     
-    console.log('🚀 Sistema de autocompletado de paquetes configurado exitosamente');
+    console.log('✅ Package completion configurado exitosamente');
     
     // Función de limpieza
     return () => {
@@ -327,7 +343,7 @@ export function setupPackageCompletion(monaco: any): () => void {
     };
     
   } catch (error) {
-    console.error('Error configurando autocompletado de paquetes:', error);
+    console.error('Error configurando package completion:', error);
     return () => {};
   }
 }
@@ -336,7 +352,7 @@ export function setupPackageCompletion(monaco: any): () => void {
 export function updatePackageCompletions(monaco: any): void {
   clearPackageCompletionCache();
   registerPackageTypes(monaco);
-  console.log('🔄 Autocompletado de paquetes actualizado');
+  console.log('🔄 Package completions actualizados');
 }
 
 // Hook para escuchar cambios en localStorage y actualizar automáticamente

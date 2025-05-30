@@ -29,7 +29,7 @@ export function useContextMenu({
   });
 
   useEffect(() => {
-    const handleContextMenuCommand = async (event: any, command: string) => {
+    const handleContextMenuCommand = async (_event: any, command: string) => {
       console.log('Context menu command:', command);
 
       switch (command) {

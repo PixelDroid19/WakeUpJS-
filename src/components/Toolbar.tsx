@@ -1,14 +1,14 @@
 /**
  * Toolbar Component
- * 
+ *
  * Componente de barra de herramientas configurable que soporta múltiples modos:
  * - normal: Barra completa con toda la información
  * - floating: Barra flotante posicionable
  * - minimal: Solo iconos esenciales
  * - compact: Iconos compactos en círculos
- * 
+ *
  * Configuración por defecto: modo flotante en la parte inferior
- * 
+ *
  */
 
 import { useSplitLayout } from "../hooks/useSplitLayout";
@@ -16,22 +16,21 @@ import { useToolbar } from "../context/ToolbarContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useSnippets } from "../context/SnippetsContext";
 import { useConfig } from "../context/ConfigContext";
-import { insertSnippet } from "../lib/monaco/snippetProvider";
+import { insertSnippet } from "../lib/monaco/modules/snippets-setup";
 import {
-  ArrowRightLeft,
+  Play,
+  Pause,
   RotateCcw,
   Settings,
-  Play,
-  Hash,
   FileText,
   Save,
-  X,
-  Pause,
-  Code2,
   EyeOff,
-  Zap,
-  PlayCircle,
+  ArrowRightLeft,
+  Code2,
+  Hash,
+  X,
   SaveAll,
+  PlayCircle,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import React from "react";
@@ -67,7 +66,11 @@ function Toolbar({
   const { config, toggleSettings } = useToolbar();
   const { state, actions, utils } = useWorkspace();
   const { state: snippetsState, actions: snippetsActions } = useSnippets();
-  const { config: configState, toggleAutoSave, toggleAutoExecution } = useConfig();
+  const {
+    config: configState,
+    toggleAutoSave,
+    toggleAutoExecution,
+  } = useConfig();
 
   // Obtener información del workspace
   const activeFile = utils.getActiveFile();
@@ -92,7 +95,7 @@ function Toolbar({
         insertSnippet(editorRef.current, snippet);
         console.log(`📦 Snippet "${snippet.name}" insertado`);
       } catch (error) {
-        console.error('Error insertando snippet:', error);
+        console.error("Error insertando snippet:", error);
       }
     }
   };
@@ -100,26 +103,30 @@ function Toolbar({
   const handleDeleteSnippet = (snippet: any) => {
     // Solo permitir borrar snippets personalizados, no los built-in
     if (!snippet.isBuiltIn) {
-      if (confirm(`¿Estás seguro de que quieres eliminar el snippet "${snippet.name}"?`)) {
+      if (
+        confirm(
+          `¿Estás seguro de que quieres eliminar el snippet "${snippet.name}"?`
+        )
+      ) {
         snippetsActions.deleteSnippet(snippet.id);
         console.log(`🗑️ Snippet "${snippet.name}" eliminado`);
       }
     } else {
-      alert('No se pueden eliminar snippets integrados del sistema.');
+      alert("No se pueden eliminar snippets integrados del sistema.");
     }
   };
 
   // Shortcut global para abrir QuickSnippetPicker (Ctrl+Shift+Space)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
+      if (e.ctrlKey && e.shiftKey && e.code === "Space") {
         e.preventDefault();
         handleOpenQuickSnippets();
       }
     };
 
-    document.addEventListener('keydown', handleGlobalKeyDown);
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown);
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    return () => document.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
   // Clases base según el tema
@@ -197,7 +204,6 @@ function Toolbar({
     const baseClasses = `${padding} rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 relative group border`;
 
     if (config.theme === "custom" && config.customColors) {
-      const hoverBg = config.customColors.hover;
       return `${baseClasses} hover:bg-opacity-80 border-opacity-30`;
     }
 
@@ -407,7 +413,7 @@ function Toolbar({
           onInsertSnippet={handleInsertSnippet}
           onDeleteSnippet={handleDeleteSnippet}
           snippets={snippetsState.snippets}
-          activeLanguage={activeFile?.language || 'javascript'}
+          activeLanguage={activeFile?.language || "javascript"}
           onShowSnippetManager={onShowSnippetManager}
         />
       </>
@@ -505,7 +511,7 @@ function Toolbar({
           onInsertSnippet={handleInsertSnippet}
           onDeleteSnippet={handleDeleteSnippet}
           snippets={snippetsState.snippets}
-          activeLanguage={activeFile?.language || 'javascript'}
+          activeLanguage={activeFile?.language || "javascript"}
           onShowSnippetManager={onShowSnippetManager}
         />
       </>
@@ -538,7 +544,7 @@ function Toolbar({
                 </div>
               </SmartTooltip>
             )}
-            
+
             {/* Indicador de undefined ocultos */}
             {config.hideUndefined && (
               <SmartTooltip text="Valores undefined ocultos">
@@ -627,7 +633,7 @@ function Toolbar({
           onInsertSnippet={handleInsertSnippet}
           onDeleteSnippet={handleDeleteSnippet}
           snippets={snippetsState.snippets}
-          activeLanguage={activeFile?.language || 'javascript'}
+          activeLanguage={activeFile?.language || "javascript"}
           onShowSnippetManager={onShowSnippetManager}
         />
       </>
@@ -757,13 +763,24 @@ function Toolbar({
 
           {/* Toggle Auto Guardado */}
           <SmartTooltip
-            text={`Auto Guardado: ${configState.autoSave.enabled ? 'Activado' : 'Desactivado'}`}
+            text={`Auto Guardado: ${
+              configState.autoSave.enabled ? "Activado" : "Desactivado"
+            }`}
           >
             <button
               onClick={toggleAutoSave}
-              className={getButtonClasses(configState.autoSave.enabled ? "success" : "secondary")}
+              className={getButtonClasses(
+                configState.autoSave.enabled ? "success" : "secondary"
+              )}
             >
-              <SaveAll size={iconSize} className={configState.autoSave.enabled ? "text-green-300" : "text-gray-400"} />
+              <SaveAll
+                size={iconSize}
+                className={
+                  configState.autoSave.enabled
+                    ? "text-green-300"
+                    : "text-gray-400"
+                }
+              />
               {config.size !== "sm" && (
                 <span className="ml-2">
                   {configState.autoSave.enabled ? "Auto Save" : "Save Off"}
@@ -774,13 +791,24 @@ function Toolbar({
 
           {/* Toggle Auto Ejecución */}
           <SmartTooltip
-            text={`Auto Ejecución: ${configState.autoExecution.enabled ? 'Activado' : 'Desactivado'}`}
+            text={`Auto Ejecución: ${
+              configState.autoExecution.enabled ? "Activado" : "Desactivado"
+            }`}
           >
             <button
               onClick={toggleAutoExecution}
-              className={getButtonClasses(configState.autoExecution.enabled ? "primary" : "secondary")}
+              className={getButtonClasses(
+                configState.autoExecution.enabled ? "primary" : "secondary"
+              )}
             >
-              <PlayCircle size={iconSize} className={configState.autoExecution.enabled ? "text-blue-300" : "text-gray-400"} />
+              <PlayCircle
+                size={iconSize}
+                className={
+                  configState.autoExecution.enabled
+                    ? "text-blue-300"
+                    : "text-gray-400"
+                }
+              />
               {config.size !== "sm" && (
                 <span className="ml-2">
                   {configState.autoExecution.enabled ? "Auto Run" : "Run Off"}
@@ -868,7 +896,7 @@ function Toolbar({
         onInsertSnippet={handleInsertSnippet}
         onDeleteSnippet={handleDeleteSnippet}
         snippets={snippetsState.snippets}
-        activeLanguage={activeFile?.language || 'javascript'}
+        activeLanguage={activeFile?.language || "javascript"}
         onShowSnippetManager={onShowSnippetManager}
       />
     </>
@@ -886,30 +914,34 @@ interface QuickSnippetPickerProps {
   onShowSnippetManager?: () => void;
 }
 
-const QuickSnippetPicker = ({ 
-  isOpen, 
-  onClose, 
-  onInsertSnippet, 
-  onDeleteSnippet, 
-  snippets, 
-  activeLanguage, 
-  onShowSnippetManager
+const QuickSnippetPicker = ({
+  isOpen,
+  onClose,
+  onInsertSnippet,
+  onDeleteSnippet,
+  snippets,
+  activeLanguage,
+  onShowSnippetManager,
 }: QuickSnippetPickerProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  
+
   // Filtrar snippets por lenguaje y búsqueda (ahora como useMemo para evitar recálculos)
   const filteredSnippets = React.useMemo(() => {
-    return snippets.filter(snippet => {
-      const matchesLanguage = snippet.language === activeLanguage || 
-                             snippet.language === 'javascript' || 
-                             snippet.language === '*';
-      const matchesSearch = searchQuery === "" || 
-                           snippet.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           snippet.prefix.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesLanguage && matchesSearch;
-    }).slice(0, 10); // Limitar a 10 resultados
+    return snippets
+      .filter((snippet) => {
+        const matchesLanguage =
+          snippet.language === activeLanguage ||
+          snippet.language === "javascript" ||
+          snippet.language === "*";
+        const matchesSearch =
+          searchQuery === "" ||
+          snippet.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          snippet.prefix.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesLanguage && matchesSearch;
+      })
+      .slice(0, 10); // Limitar a 10 resultados
   }, [snippets, activeLanguage, searchQuery]);
 
   // Función para confirmar borrado
@@ -928,29 +960,31 @@ const QuickSnippetPicker = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
-      
+
       switch (e.key) {
-        case 'Escape':
+        case "Escape":
           e.preventDefault();
           onClose();
           break;
-        case 'ArrowDown':
+        case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex(prev => Math.min(prev + 1, filteredSnippets.length - 1));
+          setSelectedIndex((prev) =>
+            Math.min(prev + 1, filteredSnippets.length - 1)
+          );
           break;
-        case 'ArrowUp':
+        case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex(prev => Math.max(prev - 1, 0));
+          setSelectedIndex((prev) => Math.max(prev - 1, 0));
           break;
-        case 'Enter':
+        case "Enter":
           e.preventDefault();
           if (filteredSnippets[selectedIndex]) {
             onInsertSnippet(filteredSnippets[selectedIndex]);
             onClose();
           }
           break;
-        case 'Delete':
-        case 'Backspace':
+        case "Delete":
+        case "Backspace":
           e.preventDefault();
           if (filteredSnippets[selectedIndex]) {
             handleConfirmDelete(filteredSnippets[selectedIndex]);
@@ -959,9 +993,17 @@ const QuickSnippetPicker = ({
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, filteredSnippets, selectedIndex, onInsertSnippet, onDeleteSnippet, onClose, handleConfirmDelete]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    isOpen,
+    filteredSnippets,
+    selectedIndex,
+    onInsertSnippet,
+    onDeleteSnippet,
+    onClose,
+    handleConfirmDelete,
+  ]);
 
   // Resetear selección cuando cambian los snippets filtrados
   useEffect(() => {
@@ -980,7 +1022,9 @@ const QuickSnippetPicker = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Code2 size={16} className="text-blue-400" />
-              <span className="text-sm font-medium text-gray-200">Insertar Snippet</span>
+              <span className="text-sm font-medium text-gray-200">
+                Insertar Snippet
+              </span>
             </div>
             {onShowSnippetManager && (
               <button
@@ -1004,7 +1048,7 @@ const QuickSnippetPicker = ({
             autoFocus
           />
         </div>
-        
+
         {/* Lista de snippets */}
         <div className="max-h-64 overflow-y-auto">
           {filteredSnippets.length === 0 ? (
@@ -1016,9 +1060,9 @@ const QuickSnippetPicker = ({
               <div
                 key={snippet.id}
                 className={`flex items-center justify-between border-b border-gray-800 last:border-b-0 transition-colors ${
-                  index === selectedIndex 
-                    ? 'bg-blue-600/20 border-blue-500/30' 
-                    : 'hover:bg-gray-800'
+                  index === selectedIndex
+                    ? "bg-blue-600/20 border-blue-500/30"
+                    : "hover:bg-gray-800"
                 }`}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
@@ -1031,18 +1075,28 @@ const QuickSnippetPicker = ({
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-200">{snippet.name}</div>
-                      <div className="text-xs text-gray-500 mt-1">{snippet.description}</div>
-                      <div className="text-xs text-blue-400 mt-1 font-mono">{snippet.prefix}</div>
+                      <div className="text-sm font-medium text-gray-200">
+                        {snippet.name}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {snippet.description}
+                      </div>
+                      <div className="text-xs text-blue-400 mt-1 font-mono">
+                        {snippet.prefix}
+                      </div>
                     </div>
-                    <div className={`text-xs px-2 py-0.5 rounded ${
-                      snippet.isBuiltIn ? 'bg-green-500/20 text-green-300' : 'bg-purple-500/20 text-purple-300'
-                    }`}>
-                      {snippet.isBuiltIn ? 'Built-in' : 'Custom'}
+                    <div
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        snippet.isBuiltIn
+                          ? "bg-green-500/20 text-green-300"
+                          : "bg-purple-500/20 text-purple-300"
+                      }`}
+                    >
+                      {snippet.isBuiltIn ? "Built-in" : "Custom"}
                     </div>
                   </div>
                 </button>
-                
+
                 {/* Botón de borrar (solo para snippets personalizados) */}
                 {!snippet.isBuiltIn && (
                   <button
@@ -1052,27 +1106,33 @@ const QuickSnippetPicker = ({
                     }}
                     className={`p-2 rounded transition-colors mr-2 ${
                       deleteConfirm === snippet.id
-                        ? 'text-white bg-red-500 hover:bg-red-600'
-                        : 'text-red-400 hover:text-red-300 hover:bg-red-500/20'
+                        ? "text-white bg-red-500 hover:bg-red-600"
+                        : "text-red-400 hover:text-red-300 hover:bg-red-500/20"
                     }`}
-                    title={deleteConfirm === snippet.id 
-                      ? "Click nuevamente para confirmar eliminación" 
-                      : "Eliminar snippet (Delete/Backspace)"
+                    title={
+                      deleteConfirm === snippet.id
+                        ? "Click nuevamente para confirmar eliminación"
+                        : "Eliminar snippet (Delete/Backspace)"
                     }
                   >
-                    {deleteConfirm === snippet.id ? '✓' : <X size={14} />}
+                    {deleteConfirm === snippet.id ? "✓" : <X size={14} />}
                   </button>
                 )}
               </div>
             ))
           )}
         </div>
-        
+
         {/* Footer */}
         <div className="p-2 border-t border-gray-700 bg-gray-850">
           <div className="text-xs text-gray-500 text-center space-y-1">
-            <div>↑↓ Navegar • Enter Insertar • Esc Cerrar • Ctrl+Shift+Space Abrir</div>
-            <div>Delete/Backspace Eliminar snippet • 🗑️ Click botón rojo para borrar</div>
+            <div>
+              ↑↓ Navegar • Enter Insertar • Esc Cerrar • Ctrl+Shift+Space Abrir
+            </div>
+            <div>
+              Delete/Backspace Eliminar snippet • 🗑️ Click botón rojo para
+              borrar
+            </div>
           </div>
         </div>
       </div>

@@ -1,138 +1,196 @@
-import { CodeLogger } from "./errorHandler";
+import { LANGUAGE_DETECTION_CONFIG } from "../../constants/config";
 
 // Importar las funciones de limpieza de cache
 let clearExecutionCache: (() => void) | null = null;
 let forceNewExecution: ((code: string) => void) | null = null;
 
 // Importación lazy para evitar dependencias circulares
-const importCacheFunctions = async () => {
+const _importCacheFunctions = async () => {
   if (!clearExecutionCache || !forceNewExecution) {
     try {
       const cacheModule = await import("./code-executor");
       clearExecutionCache = cacheModule.clearExecutionCache;
       forceNewExecution = cacheModule.forceNewExecution;
     } catch (error) {
-      CodeLogger.log("warn", "No se pudieron importar funciones de cache", error);
+      console.warn("No se pudieron importar funciones de cache", error);
     }
   }
 };
 
-/**
- * Detecta si el código contiene sintaxis JSX
- * @param code - Código a analizar
- * @returns true si contiene JSX, false en caso contrario
- */
-export const detectJSX = (code: string): boolean => {
-  CodeLogger.log("info", "Iniciando detección de JSX", {
-    codeLength: code.length,
-    codePreview: code.substring(0, 100),
-  });
+export interface LanguageDetection {
+  extension: string;
+  languageId: string;
+  hasJSX: boolean;
+  hasTypeScript: boolean;
+}
 
-  // Patrones específicos de JSX más precisos - SIN falsos positivos
-  const jsxPatterns = [
-    /<[A-Z][a-zA-Z0-9]*(\s[^>]*)?\s*\/?>/, // Componentes React (PascalCase): <MyComponent />
-    /<[a-z][a-zA-Z0-9]*(\s[^>]*)?\s*\/?>/, // Elementos HTML: <div>, <button>, etc.
-    /<\/[a-zA-Z][a-zA-Z0-9]*>/, // Closing tags: </div>
-    /className\s*=/, // Atributo específico de React
-    /onClick\s*=/, // Eventos de React
-    /return\s*\(\s*</, // return ( seguido de JSX
-    // REMOVIDO: /\{\s*[\w.]+\s*\}/, // Este patrón causa falsos positivos con destructuring
-    /useState|useEffect|useContext|useReducer/, // Hooks de React
-    /React\./, // Uso directo de React
-    /<>\s*.*\s*<\/>/, // React fragments
-    /jsx|JSX/, // Comentarios o menciones de JSX
-    // Patrón más específico para interpolación JSX (debe estar dentro de elementos HTML)
-    /<[a-zA-Z][^>]*>\s*\{[^}]+\}\s*<\/[a-zA-Z]/, // JSX con interpolación real: <div>{variable}</div>
-    /<[a-zA-Z][^>]*\s+\w+\s*=\s*\{[^}]+\}/, // Atributos JSX con llaves: <div prop={value}>
-  ];
-
-  // Verificar si al menos uno de los patrones coincide
-  const hasJSXPattern = jsxPatterns.some((pattern, index) => {
-    const match = pattern.test(code);
-    if (match) {
-      CodeLogger.log(
-        "info",
-        `Patrón JSX ${index + 1} detectado: ${pattern.source}`
-      );
-    }
-    return match;
-  });
-
-  // También verificar si el código tiene la estructura típica de un componente React
-  const componentPatterns = [
-    /function\s+[A-Z]\w*\s*\([^)]*\)\s*\{[\s\S]*return\s*\([\s\S]*</,
-    /const\s+[A-Z]\w*\s*=\s*\([^)]*\)\s*=>\s*\{[\s\S]*return\s*\([\s\S]*</,
-    /const\s+[A-Z]\w*\s*=\s*\([^)]*\)\s*=>\s*\([\s\S]*</,
-  ];
-
-  const hasReactComponent = componentPatterns.some((pattern, index) => {
-    const match = pattern.test(code);
-    if (match) {
-      CodeLogger.log(
-        "info",
-        `Componente React ${index + 1} detectado por estructura`
-      );
-    }
-    return match;
-  });
-
-  // Verificaciones adicionales para evitar falsos positivos
-  const hasDestructuring = /const\s*\{\s*[\w\s,]+\}\s*=/.test(code);
-  const hasObjectLiterals = /\{\s*\w+\s*:\s*\w+/.test(code);
-  const hasJSFunction = /function\s*\*|\bclass\b|\basync\s+function/.test(code);
+// Funciones de detección consolidadas usando configuración centralizada
+export function detectLanguageFromContent(content: string): LanguageDetection {
+  const trimmedContent = content.trim();
   
-  const result = hasJSXPattern || hasReactComponent;
+  if (!trimmedContent || trimmedContent.length < LANGUAGE_DETECTION_CONFIG.MIN_CONTENT_LENGTH) {
+    return {
+      extension: '.js',
+      languageId: 'javascript',
+      hasJSX: false,
+      hasTypeScript: false
+    };
+  }
+
+  const hasJSX = detectJSX(trimmedContent);
+  const hasTypeScript = detectTypeScript(trimmedContent);
+
+  // Lógica de prioridad basada en configuración
+  const preferences = LANGUAGE_DETECTION_CONFIG.PREFERENCES;
   
-  // Si es JavaScript normal (no JSX) y tiene patrones que podrían confundirse con JSX
-  const isJavaScriptNormal = !result && (hasDestructuring || hasObjectLiterals || hasJSFunction);
-  
-  if (isJavaScriptNormal) {
-    CodeLogger.log("info", "Falso positivo JSX evitado: código JavaScript normal detectado");
-    
-    // FORZAR limpieza de cache INMEDIATAMENTE para garantizar nueva ejecución
-    importCacheFunctions().then(() => {
-      if (clearExecutionCache && forceNewExecution) {
-        clearExecutionCache(); // Limpiar TODO el cache
-        forceNewExecution(code); // Forzar nueva ejecución específica
-        CodeLogger.log("info", "Cache completamente limpiado debido a detección JSX corregida");
-      }
-    });
+  if (hasTypeScript && hasJSX) {
+    return {
+      extension: '.tsx',
+      languageId: 'typescriptreact',
+      hasJSX: true,
+      hasTypeScript: true
+    };
   }
   
-  // Log final más detallado
-  CodeLogger.log("info", `Detección JSX final: ${result}`, {
-    hasJSXPattern,
-    hasReactComponent,
-    codeContainsDiv: code.includes("<div>"),
-    codeContainsButton: code.includes("<button"),
-    codeContainsReturn: code.includes("return ("),
-    codeContainsUseState: code.includes("useState"),
-    hasDestructuring,
-    hasObjectLiterals,
-    hasJSFunction,
-    isJavaScriptNormal,
-    willInvalidateCache: isJavaScriptNormal
-  });
+  if (hasTypeScript && preferences.PREFER_TYPESCRIPT_OVER_JAVASCRIPT) {
+    return {
+      extension: '.ts',
+      languageId: 'typescript',
+      hasJSX: false,
+      hasTypeScript: true
+    };
+  }
+  
+  if (hasJSX && preferences.PREFER_JSX_VARIANTS) {
+    return {
+      extension: '.jsx',
+      languageId: 'javascriptreact',
+      hasJSX: true,
+      hasTypeScript: false
+    };
+  }
 
-  return result;
+  return {
+    extension: '.js',
+    languageId: 'javascript',
+    hasJSX: false,
+    hasTypeScript: false
+  };
+}
+
+export function detectLanguageFromFilename(filename: string): LanguageDetection {
+  const extension = getFileExtension(filename);
+  const mapping = LANGUAGE_DETECTION_CONFIG.SUPPORTED_EXTENSIONS;
+  const languageId = mapping[extension as keyof typeof mapping] || 'javascript';
+  
+  const hasJSX = ['javascriptreact', 'typescriptreact'].includes(languageId);
+  const hasTypeScript = ['typescript', 'typescriptreact'].includes(languageId);
+
+  return {
+    extension,
+    languageId,
+    hasJSX,
+    hasTypeScript
+  };
+}
+
+// Detección mejorada de JSX con menos falsos positivos
+export function detectJSX(content: string): boolean {
+  if (!content) return false;
+
+  // Patrones positivos para JSX
+  const jsxPositivePatterns = [
+    /<[A-Z][a-zA-Z0-9]*\s*(?:\w+\s*=\s*{[^}]*}|\w+\s*=\s*"[^"]*"|\w+)*\s*\/?>/, // Componentes con props
+    /<[A-Z][a-zA-Z0-9]*>[\s\S]*?<\/[A-Z][a-zA-Z0-9]*>/, // Componentes con contenido
+    /className\s*=\s*{/, // JSX className
+    /onClick\s*=\s*{/, // JSX events
+    /React\.createElement/, // React.createElement calls
+    /{[^}]*}\s*<[A-Z]/, // Expresiones JSX dentro de JSX
+    /return\s*\(\s*<[A-Z]/, // Return JSX
+    /jsx\s*:\s*true/, // Configuración JSX
+  ];
+
+  // Patrones negativos para evitar falsos positivos
+  const jsxNegativePatterns = [
+    /<\s*[\w\s]*\s*<=?\s*/, // Comparaciones matemáticas con <
+    /<\s*\w+\s*>\s*\w+\s*</, // Comparaciones entre variables
+    /template\s*</, // Template strings con TypeScript generics
+    /\w+\s*<\s*\w+\s*>/, // Generic types simples
+  ];
+
+  // Verificar patrones negativos primero
+  for (const pattern of jsxNegativePatterns) {
+    if (pattern.test(content)) {
+      return false;
+    }
+  }
+
+  // Verificar patrones positivos
+  return jsxPositivePatterns.some(pattern => pattern.test(content));
+}
+
+// Detección robusta de TypeScript
+export function detectTypeScript(content: string): boolean {
+  if (!content) return false;
+
+  const typeScriptPatterns = [
+    /interface\s+[A-Z]\w*\s*{/, // Interfaces con nombre capitalizado
+    /type\s+[A-Z]\w*\s*=/, // Type aliases
+    /:\s*[A-Z]\w*(?:\[\])?(?:\s*\|\s*[A-Z]\w*(?:\[\])?)*\s*[=;,)]/, // Type annotations precisas
+    /as\s+[A-Z]\w*/, // Type assertions
+    /implements\s+[A-Z]\w*/, // Implementaciones de interfaces
+    /extends\s+[A-Z]\w*</, // Herencia genérica
+    /public\s+\w+\s*:/, // Propiedades públicas
+    /private\s+\w+\s*:/, // Propiedades privadas
+    /protected\s+\w+\s*:/, // Propiedades protegidas
+    /readonly\s+\w+\s*:/, // Propiedades readonly
+    /\?\s*:/, // Propiedades opcionales
+    /enum\s+[A-Z]\w*/, // Enums
+    /namespace\s+\w+/, // Namespaces
+    /declare\s+(module|namespace|class|function|var|let|const)/, // Declaraciones ambient
+    /<[A-Z]\w*(?:\s*,\s*[A-Z]\w*)*>/, // Generics
+    /function\s+\w+<[A-Z]/, // Funciones genéricas
+    /keyof\s+/, // Keyof operator
+    /typeof\s+\w+/, // Typeof operator
+    /\w+\s*:\s*Array</, // Array types
+    /\w+\s*:\s*Promise</, // Promise types
+    /\w+\s*:\s*Record</, // Record types
+    /\w+\s*:\s*Partial</, // Utility types
+  ];
+
+  return typeScriptPatterns.some(pattern => pattern.test(content));
+}
+
+// Función auxiliar para obtener extensión de archivo
+function getFileExtension(filename: string): string {
+  const match = filename.match(/\.([^.]+)$/);
+  return match ? `.${match[1]}` : '.js';
+}
+
+/**
+ * Genera un nombre de archivo automático basado en el contenido
+ * @param baseName - Nombre base sin extensión
+ * @param code - Contenido del código
+ * @returns Nombre completo del archivo con extensión apropiada
+ */
+export const generateAutoFilename = (baseName: string, code: string): string => {
+  // Si el baseName ya tiene extensión, respetarla
+  if (baseName.includes('.')) {
+    return baseName;
+  }
+
+  const detection = detectLanguageFromContent(code);
+  return `${baseName}${detection.extension}`;
 };
 
 /**
- * Detecta si el código contiene sintaxis TypeScript
- * @param code - Código a analizar
- * @returns true si contiene TypeScript, false en caso contrario
+ * Obtiene el languageId para Monaco Editor basado en el nombre del archivo
+ * @param filename - Nombre del archivo
+ * @returns languageId para Monaco Editor
  */
-export const detectTypeScript = (code: string): boolean => {
-  const tsPatterns = [
-    /:\s*\w+(\[\]|\|\w+)*\s*[=;,)]/, // Type annotations: variable: string
-    /interface\s+\w+/, // Interfaces
-    /type\s+\w+\s*=/, // Type aliases
-    /as\s+\w+/, // Type assertions
-    /<\w+>/, // Generic types
-    /enum\s+\w+/, // Enums
-  ];
-
-  return tsPatterns.some((pattern) => pattern.test(code));
+export const getMonacoLanguageId = (filename: string): string => {
+  const detection = detectLanguageFromFilename(filename);
+  return detection.languageId;
 };
 
 /**
@@ -156,14 +214,14 @@ export const detectInfiniteLoops = (code: string): boolean => {
     return false;
   }
 
-  CodeLogger.log("info", "Patrón de bucle infinito detectado, analizando contexto...");
+  console.info("Patrón de bucle infinito detectado, analizando contexto...");
 
   // Verificaciones de contextos seguros:
   
   // 1. Verificar si el código contiene funciones generadoras
   const hasGeneratorFunction = /function\s*\*|=>\s*{[^}]*yield|\*\s*\([^)]*\)|yield\s+/i.test(code);
   if (hasGeneratorFunction) {
-    CodeLogger.log("info", "Código contiene generadores, permitiendo bucles infinitos");
+    console.info("Código contiene generadores, permitiendo bucles infinitos");
     return false;
   }
 
@@ -174,7 +232,7 @@ export const detectInfiniteLoops = (code: string): boolean => {
     const codeNormalized = code.replace(/\s+/g, ' ');
     const whileWithAwaitPattern = /while\s*\(\s*true\s*\)[^{}]*{[^}]*await[^}]*}/i;
     if (whileWithAwaitPattern.test(codeNormalized)) {
-      CodeLogger.log("info", "Bucle infinito con await detectado (patrón válido)");
+      console.info("Bucle infinito con await detectado (patrón válido)");
       return false;
     }
   }
@@ -188,7 +246,7 @@ export const detectInfiniteLoops = (code: string): boolean => {
   for (const match of potentiallyInfiniteLoops) {
     const loopBody = match[1];
     if (/\b(break|return|throw|yield|await)\b/.test(loopBody)) {
-      CodeLogger.log("info", "Bucle con palabra clave de escape detectado (break/return/throw/yield/await)");
+      console.info("Bucle con palabra clave de escape detectado (break/return/throw/yield/await)");
       return false;
     }
   }
@@ -196,25 +254,25 @@ export const detectInfiniteLoops = (code: string): boolean => {
   // 4. Verificar patrones de módulos IIFE (Immediately Invoked Function Expression)
   const iifePattern = /\(\s*\(\s*\)\s*=>\s*{|\(\s*function\s*\(\s*\)\s*{/i;
   if (iifePattern.test(code)) {
-    CodeLogger.log("info", "Patrón IIFE detectado, probablemente código modular seguro");
+    console.info("Patrón IIFE detectado, probablemente código modular seguro");
     return false;
   }
 
   // 5. Verificar si es un web worker o service worker pattern
   const workerPattern = /self\.|postMessage|onmessage/i;
   if (workerPattern.test(code)) {
-    CodeLogger.log("info", "Patrón de Worker detectado, permitiendo bucles infinitos");
+    console.info("Patrón de Worker detectado, permitiendo bucles infinitos");
     return false;
   }
 
   // 6. Verificar si hay event listeners o callbacks que sugieren control asíncrono
   const eventPattern = /addEventListener|setTimeout|setInterval|Promise|then\(|catch\(/i;
   if (eventPattern.test(code)) {
-    CodeLogger.log("info", "Patrón de eventos/async detectado, probablemente seguro");
+    console.info("Patrón de eventos/async detectado, probablemente seguro");
     return false;
   }
 
   // Si llegamos aquí, es probable que sea un bucle infinito peligroso
-  CodeLogger.log("warn", "Bucle infinito potencialmente peligroso detectado");
+  console.warn("Bucle infinito potencialmente peligroso detectado");
   return true;
 }; 

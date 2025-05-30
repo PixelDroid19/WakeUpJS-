@@ -1,6 +1,10 @@
+/* Importar variables de tema primero */
+@import url('./styles/theme-variables.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 .horizontal .gutter {
   height: 100%;
   background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==");
@@ -29,4 +33,50 @@
 
 button {
   -webkit-app-region: no-drag;
+}
+
+/* Aplicar variables de tema a componentes principales */
+body {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.result-panel {
+  background-color: var(--theme-bg);
+  color: var(--theme-fg);
+  border: 1px solid var(--theme-border);
+}
+
+.result-item {
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.result-item.error {
+  color: var(--theme-error);
+  background-color: color-mix(in srgb, var(--theme-error) 10%, transparent);
+}
+
+.result-item.warning {
+  color: var(--theme-warning);
+  background-color: color-mix(in srgb, var(--theme-warning) 10%, transparent);
+}
+
+.result-item.info {
+  color: var(--theme-info);
+  background-color: color-mix(in srgb, var(--theme-info) 10%, transparent);
+}
+
+.success-text {
+  color: var(--theme-success);
+}
+
+.error-text {
+  color: var(--theme-error);
+}
+
+.warning-text {
+  color: var(--theme-warning);
+}
+
+.info-text {
+  color: var(--theme-info);
 }

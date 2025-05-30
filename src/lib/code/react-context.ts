@@ -27,7 +27,7 @@ export const createReactContext = () => {
       return [state, setState];
     },
 
-    useEffect: (effect: Function, deps?: any[]) => {
+    useEffect: (effect: Function, _deps?: any[]) => {
       console.log("useEffect ejecutado");
       try {
         const cleanup = effect();
@@ -55,12 +55,12 @@ export const createReactContext = () => {
       return [state, dispatch];
     },
 
-    useMemo: (factory: Function, deps?: any[]) => {
+    useMemo: (factory: Function, _deps?: any[]) => {
       console.log("useMemo ejecutado");
       return factory();
     },
 
-    useCallback: (callback: Function, deps?: any[]) => {
+    useCallback: (callback: Function, _deps?: any[]) => {
       console.log("useCallback ejecutado");
       return callback;
     },

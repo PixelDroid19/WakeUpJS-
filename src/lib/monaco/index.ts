@@ -4,7 +4,7 @@ export {
   updatePackageCompletions,
   setupPackageUpdateListener,
   clearPackageCompletionCache
-} from './packageCompletion';
+} from './modules/package-completion';
 
 export {
   getPackageDefinition,
@@ -17,14 +17,33 @@ export {
   setupMonacoEditor,
   handleEditorWillMount,
   handleEditorDidMount,
-  refreshPackageCompletions
+  refreshPackageCompletions,
+  detectAndSetMonacoLanguage,
+  autoUpdateLanguage,
+  forceModelRevalidation
 } from './monacoSetup';
 
 export {
-  setupContextualHelp,
-  createHoverProvider,
-  createDefinitionProvider,
-  createSignatureHelpProvider,
+  setupCustomHoverProviders,
   addCustomDefinition,
   clearHoverCache
-} from './contextualHelp'; 
+} from './modules/hover-providers';
+
+export {
+  setupSnippets,
+  refreshSnippets,
+  insertSnippet,
+  registerSnippetCommands,
+  validateSnippet
+} from './modules/snippets-setup';
+
+// Exportar funciones de detección de lenguajes
+export {
+  detectLanguageFromContent,
+  detectLanguageFromFilename,
+  getMonacoLanguageId,
+  generateAutoFilename,
+  detectJSX,
+  detectTypeScript,
+  type LanguageDetection
+} from '../code/detectors'; 

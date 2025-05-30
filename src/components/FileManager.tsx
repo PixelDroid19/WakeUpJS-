@@ -10,21 +10,15 @@ import {
   X,
   FileText,
   Save,
-  Download,
-  Upload,
   Copy,
   Edit,
-  FolderOpen,
   Code2,
   FileCode,
   Globe,
   Palette,
   Settings,
   Package,
-  Menu,
-  MousePointer,
   RotateCcw,
-  AlertCircle,
 } from "lucide-react";
 import NewFileDialog from "./NewFileDialog";
 import SettingsDialog from "./SettingsDialog";
@@ -60,14 +54,12 @@ function FileTab({
   };
 
   const getFileIcon = () => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    switch (ext) {
-      case "js":
-      case "jsx":
-        return <Code2 size={14} className="text-yellow-400" />;
-      case "ts":
-      case "tsx":
+    // Iconos basados en el lenguaje detectado internamente, no en extensión
+    switch (file.language) {
+      case "typescript":
         return <FileCode size={14} className="text-blue-400" />;
+      case "javascript":
+        return <Code2 size={14} className="text-yellow-400" />;
       case "html":
         return <Globe size={14} className="text-orange-400" />;
       case "css":
@@ -78,14 +70,12 @@ function FileTab({
   };
 
   const getFileTypeGradient = () => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    switch (ext) {
-      case "js":
-      case "jsx":
-        return "from-yellow-500/10 to-orange-500/10 border-yellow-500/30";
-      case "ts":
-      case "tsx":
+    // Gradientes basados en el lenguaje detectado internamente
+    switch (file.language) {
+      case "typescript":
         return "from-blue-500/10 to-cyan-500/10 border-blue-500/30";
+      case "javascript":
+        return "from-yellow-500/10 to-orange-500/10 border-yellow-500/30";
       case "html":
         return "from-orange-500/10 to-red-500/10 border-orange-500/30";
       case "css":
@@ -136,7 +126,7 @@ function FileTab({
                 : "text-gray-300 group-hover:text-white"
             } ${file.isUnsaved ? "italic" : ""}`}
             onDoubleClick={() => setIsEditing(true)}
-            title={file.name}
+            title={`${file.name} (${file.language})`}
           >
             {file.name}
           </span>
@@ -313,8 +303,11 @@ function FileManager() {
     ]);
   };
 
-  const createNewFile = (name: string, language: any) => {
-    actions.createFile(name, language);
+  // Función simplificada para crear archivo sin lógica de detección de extensiones
+  const createNewFile = (name: string, initialContent: string = '') => {
+    // Crear archivo directamente sin extensión automática
+    // La detección será manejada internamente por el sistema
+    actions.createFile(name, initialContent);
     setShowNewFileDialog(false);
   };
 
@@ -338,11 +331,11 @@ function FileManager() {
           />
         ))}
 
-        {/* Botón para nuevo archivo mejorado */}
+        {/* Botón para nuevo archivo simplificado */}
         <button
           onClick={() => setShowNewFileDialog(true)}
           className="flex items-center gap-2 px-4 py-3 text-gray-400 hover:text-white hover:bg-gradient-to-b hover:from-gray-700/60 hover:to-gray-700/40 transition-all duration-200 border-r border-gray-600/50 min-w-fit"
-          title="Nuevo archivo"
+          title="Nuevo archivo (sin extensión automática)"
         >
           <Plus size={16} className="text-green-400" />
           <span className="text-sm font-medium">Nuevo</span>

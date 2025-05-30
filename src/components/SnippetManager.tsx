@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useSnippets } from "../context/SnippetsContext";
 import { Snippet, SnippetCategory } from "../types/snippets";
-import { validateSnippet } from "../lib/monaco/snippetProvider";
+import { validateSnippet } from "../lib/monaco/modules/snippets-setup";
 import {
   Search,
   Plus,
@@ -270,7 +270,6 @@ export default function SnippetManager({
           {activeTab === "list" && (
             <SnippetList
               snippets={filteredSnippets}
-              stats={stats}
               showFilters={showFilters}
               onToggleFilters={() => setShowFilters(!showFilters)}
               onEdit={handleEditSnippet}
@@ -310,7 +309,6 @@ export default function SnippetManager({
 // Componente de lista de snippets
 interface SnippetListProps {
   snippets: Snippet[];
-  stats: any;
   showFilters: boolean;
   onToggleFilters: () => void;
   onEdit: (snippet: Snippet) => void;
@@ -328,7 +326,6 @@ interface SnippetListProps {
 
 function SnippetList({
   snippets,
-  stats,
   showFilters,
   onToggleFilters,
   onEdit,

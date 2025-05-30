@@ -22,7 +22,7 @@ interface UseCodeEditorParams {
   onCodeChange: (code: string) => void;
 }
 
-export const useCodeEditor = ({ onResult, onCodeChange }: UseCodeEditorParams): UseCodeEditorResult => {
+export const useCodeEditor = ({ onResult, onCodeChange: _onCodeChange }: UseCodeEditorParams): UseCodeEditorResult => {
   const [isRunning, setIsRunning] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [error, setError] = useState<string | null>(null);

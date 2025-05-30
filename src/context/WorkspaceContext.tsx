@@ -61,11 +61,16 @@ interface WorkspaceState {
 type WorkspaceAction =
   | {
       type: "CREATE_FILE";
-      payload: { name: string; language: WorkspaceFile["language"] };
+      payload: { 
+        name: string; 
+        language?: WorkspaceFile["language"]; 
+        content?: string; 
+      };
     }
   | { type: "DELETE_FILE"; payload: { id: string } }
   | { type: "RENAME_FILE"; payload: { id: string; name: string } }
   | { type: "UPDATE_FILE_CONTENT"; payload: { id: string; content: string } }
+  | { type: "UPDATE_FILE_LANGUAGE"; payload: { id: string; language: WorkspaceFile["language"] } }
   | { type: "SET_ACTIVE_FILE"; payload: { id: string } }
   | { type: "DUPLICATE_FILE"; payload: { id: string } }
   | { type: "SAVE_FILE"; payload: { id: string } }
@@ -89,7 +94,7 @@ const DEFAULT_TEMPLATES: WorkspaceTemplate[] = [
     category: "react",
     files: [
       {
-        name: "App.jsx",
+        name: "App",
         content: `import { useState } from 'react';
 
 function App() {
@@ -120,7 +125,7 @@ export default App;`,
     category: "vanilla",
     files: [
       {
-        name: "script.js",
+        name: "script",
         content: `// Crear elementos dinámicamente
 const container = document.createElement('div');
 container.innerHTML = '<h1>¡Hola Mundo!</h1>';
@@ -146,7 +151,7 @@ console.log('DOM element created:', container);`,
     category: "algorithms",
     files: [
       {
-        name: "sorting.js",
+        name: "sorting",
         content: `// Algoritmos de ordenamiento
 
 // Bubble Sort
@@ -190,7 +195,7 @@ console.log('Quick Sort:', quickSort([...numbers]));`,
     category: "examples",
     files: [
       {
-        name: "api-example.js",
+        name: "api-example",
         content: `// Ejemplo de consumo de API
 async function fetchUserData(userId) {
   try {
@@ -278,11 +283,12 @@ function workspaceReducer(
 ): WorkspaceState {
   switch (action.type) {
     case "CREATE_FILE": {
+      // Crear archivo simplificado sin detección automática de extensión
       const newFile: WorkspaceFile = {
         id: Date.now().toString(),
-        name: action.payload.name,
-        content: "",
-        language: action.payload.language,
+        name: action.payload.name, // Usar nombre tal como se proporciona
+        content: action.payload.content || "",
+        language: action.payload.language || "javascript", // Default JavaScript si no se especifica
         isActive: false,
         lastModified: Date.now(),
         isUnsaved: true,
@@ -388,6 +394,22 @@ function workspaceReducer(
       };
     }
 
+    case "UPDATE_FILE_LANGUAGE": {
+      return {
+        ...state,
+        files: state.files.map((f) =>
+          f.id === action.payload.id
+            ? {
+                ...f,
+                language: action.payload.language,
+                lastModified: Date.now(),
+                isUnsaved: true,
+              }
+            : f
+        ),
+      };
+    }
+
     case "SET_ACTIVE_FILE": {
       return {
         ...state,
@@ -406,10 +428,7 @@ function workspaceReducer(
       const newFile: WorkspaceFile = {
         ...originalFile,
         id: Date.now().toString(),
-        name: `${originalFile.name.replace(
-          /\.[^/.]+$/,
-          ""
-        )} (copy).${originalFile.name.split(".").pop()}`,
+        name: `${originalFile.name} (copy)`, // Simplificado sin lógica de extensión
         isActive: false,
         lastModified: Date.now(),
         isUnsaved: true,
@@ -460,7 +479,7 @@ function workspaceReducer(
 
       const newFiles: WorkspaceFile[] = template.files.map((file, index) => ({
         id: Date.now().toString() + index,
-        name: file.name,
+        name: file.name, // Sin extensión automática en templates también
         content: file.content,
         language: file.language,
         isActive: index === 0,
@@ -527,10 +546,11 @@ function workspaceReducer(
 const WorkspaceContext = createContext<{
   state: WorkspaceState;
   actions: {
-    createFile: (name: string, language: WorkspaceFile["language"]) => void;
+    createFile: (name: string, content?: string, language?: WorkspaceFile["language"]) => void;
     deleteFile: (id: string) => void;
     renameFile: (id: string, name: string) => void;
     updateFileContent: (id: string, content: string) => void;
+    updateFileLanguage: (id: string, language: WorkspaceFile["language"]) => void;
     setActiveFile: (id: string) => void;
     duplicateFile: (id: string) => void;
     saveFile: (id: string) => void;
@@ -587,8 +607,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   // Actions
   const actions = {
     createFile: useCallback(
-      (name: string, language: WorkspaceFile["language"]) => {
-        dispatch({ type: "CREATE_FILE", payload: { name, language } });
+      (name: string, content?: string, language?: WorkspaceFile["language"]) => {
+        dispatch({ type: "CREATE_FILE", payload: { name, content, language } });
       },
       []
     ),
@@ -603,6 +623,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     updateFileContent: useCallback((id: string, content: string) => {
       dispatch({ type: "UPDATE_FILE_CONTENT", payload: { id, content } });
+    }, []),
+
+    updateFileLanguage: useCallback((id: string, language: WorkspaceFile["language"]) => {
+      dispatch({ type: "UPDATE_FILE_LANGUAGE", payload: { id, language } });
     }, []),
 
     setActiveFile: useCallback((id: string) => {

@@ -1,0 +1,182 @@
+/* Variables CSS para el sistema de temas */
+
+:root {
+  /* Variables por defecto (One Dark) */
+  --theme-bg: #282a36;
+  --theme-fg: #f8f8f2;
+  --theme-accent: #bd93f9;
+  --theme-success: #50fa7b;
+  --theme-error: #ff5555;
+  --theme-warning: #ffb86c;
+  --theme-info: #8be9fd;
+  
+  /* Variables derivadas para UI */
+  --theme-bg-secondary: color-mix(in srgb, var(--theme-bg) 85%, white);
+  --theme-bg-tertiary: color-mix(in srgb, var(--theme-bg) 90%, white);
+  --theme-border: color-mix(in srgb, var(--theme-fg) 20%, transparent);
+  --theme-shadow: color-mix(in srgb, var(--theme-bg) 50%, black);
+}
+
+/* Estilos para el tema One Dark */
+.theme-onedark {
+  color-scheme: dark;
+}
+
+.theme-onedark .result-panel {
+  background-color: var(--theme-bg);
+  color: var(--theme-fg);
+  border: 1px solid var(--theme-border);
+}
+
+.theme-onedark .result-item {
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.theme-onedark .result-item.execution {
+  color: var(--theme-fg);
+}
+
+.theme-onedark .result-item.error {
+  color: var(--theme-error);
+  background-color: color-mix(in srgb, var(--theme-error) 10%, transparent);
+}
+
+.theme-onedark .result-item.warning {
+  color: var(--theme-warning);
+  background-color: color-mix(in srgb, var(--theme-warning) 10%, transparent);
+}
+
+.theme-onedark .result-item.info {
+  color: var(--theme-info);
+  background-color: color-mix(in srgb, var(--theme-info) 10%, transparent);
+}
+
+.theme-onedark .success-text {
+  color: var(--theme-success);
+}
+
+.theme-onedark .error-text {
+  color: var(--theme-error);
+}
+
+.theme-onedark .warning-text {
+  color: var(--theme-warning);
+}
+
+.theme-onedark .info-text {
+  color: var(--theme-info);
+}
+
+/* Estilos para el tema claro */
+.theme-light {
+  color-scheme: light;
+  --theme-bg-secondary: color-mix(in srgb, var(--theme-bg) 95%, black);
+  --theme-bg-tertiary: color-mix(in srgb, var(--theme-bg) 90%, black);
+  --theme-border: color-mix(in srgb, var(--theme-fg) 25%, transparent);
+  --theme-shadow: color-mix(in srgb, var(--theme-bg) 80%, black);
+}
+
+.theme-light .result-panel {
+  background-color: var(--theme-bg);
+  color: var(--theme-fg);
+  border: 1px solid var(--theme-border);
+}
+
+.theme-light .result-item {
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.theme-light .result-item.execution {
+  color: var(--theme-fg);
+}
+
+.theme-light .result-item.error {
+  color: var(--theme-error);
+  background-color: color-mix(in srgb, var(--theme-error) 8%, transparent);
+}
+
+.theme-light .result-item.warning {
+  color: var(--theme-warning);
+  background-color: color-mix(in srgb, var(--theme-warning) 8%, transparent);
+}
+
+.theme-light .result-item.info {
+  color: var(--theme-info);
+  background-color: color-mix(in srgb, var(--theme-info) 8%, transparent);
+}
+
+.theme-light .success-text {
+  color: var(--theme-success);
+}
+
+.theme-light .error-text {
+  color: var(--theme-error);
+}
+
+.theme-light .warning-text {
+  color: var(--theme-warning);
+}
+
+.theme-light .info-text {
+  color: var(--theme-info);
+}
+
+/* Componentes generales que usan las variables de tema */
+.themed-background {
+  background-color: var(--theme-bg);
+  color: var(--theme-fg);
+}
+
+.themed-secondary {
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-fg);
+}
+
+.themed-border {
+  border-color: var(--theme-border);
+}
+
+.themed-shadow {
+  box-shadow: 0 2px 8px var(--theme-shadow);
+}
+
+.themed-button {
+  background-color: var(--theme-accent);
+  color: var(--theme-bg);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.themed-button:hover {
+  background-color: color-mix(in srgb, var(--theme-accent) 85%, white);
+}
+
+.themed-button:active {
+  background-color: color-mix(in srgb, var(--theme-accent) 75%, white);
+}
+
+.themed-input {
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-fg);
+  border: 1px solid var(--theme-border);
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.themed-input:focus {
+  outline: none;
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 25%, transparent);
+}
+
+/* Transiciones suaves para cambios de tema */
+* {
+  transition: 
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+} 

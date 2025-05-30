@@ -1,4 +1,3 @@
-import React from 'react';
 import { Save, Clock, AlertCircle } from 'lucide-react';
 
 interface AutoSaveIndicatorProps {

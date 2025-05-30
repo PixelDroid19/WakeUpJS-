@@ -7,17 +7,25 @@ import { useSnippets } from "../context/SnippetsContext";
 import { useCodeEditor } from "../hooks/useCodeEditor";
 import { useDebouncedCodeRunner } from "../hooks/useDebouncedCodeRunner";
 import { useAutoSave } from "../hooks/useAutoSave";
-import { useAutoExecutionConfig } from "../context/ConfigContext";
-import { EDITOR_CONFIG, EDITOR_THEMES } from "../constants/config";
+import { useMonacoWorkspaceSync } from "../hooks/useMonacoWorkspaceSync";
+import {
+  SESSION_CONFIG,
+  MONACO_EDITOR_CONFIG,
+  SYSTEM_MESSAGES,
+  DEBUG_CONFIG,
+  AUTO_SAVE_CONFIG,
+  LANGUAGE_DETECTION_CONFIG
+} from "../constants/config";
 import {
   handleEditorWillMount,
   handleEditorDidMount,
   refreshPackageCompletions,
   setupSnippets,
-  refreshSnippets,
 } from "../lib/monaco/monacoSetup";
+import { themeManager } from "../lib/themes/theme-manager";
 import ExecutionStatusIndicator from "./ExecutionStatusIndicator";
 import ExecutionDashboard from "./ExecutionDashboard";
+import ThemeSelector from "./ThemeSelector";
 
 interface EditorProps {
   editorRef?: React.MutableRefObject<any>;
@@ -27,29 +35,22 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const { setResult } = useContext(CodeResultContext);
   const { actions, utils } = useWorkspace();
   const { installedPackages } = usePackageManager();
-  const { state: snippetsState, actions: snippetsActions } = useSnippets();
+  const { state: snippetsState } = useSnippets();
   const [isDashboardVisible, setIsDashboardVisible] = useState(false);
-  const autoExecutionConfig = useAutoExecutionConfig();
+  const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
 
-  // Referencia para Monaco y el editor
   const monacoInstanceRef = useRef<any>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const editorInstanceRef = useRef<any>(null);
 
-  // Obtener el archivo activo
   const activeFile = utils.getActiveFile();
 
-  // Hook para manejar la lógica del editor con integración de workspace
   const {
     isRunning,
     isTransforming,
     runCode,
     monacoRef,
-    error,
-    errorInfo,
-    clearError,
     executionMetrics,
-    cancelExecution,
   } = useCodeEditor({
     onResult: setResult,
     onCodeChange: (code: string) => {
@@ -59,99 +60,94 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     },
   });
 
-  // Hook de debounce inteligente con estado visual
+  // Hook de sincronización Monaco-Workspace
+  const { syncLanguage, forceSync, isLanguageSynced } = useMonacoWorkspaceSync({
+    editorInstance: editorInstanceRef.current,
+    monacoInstance: monacoInstanceRef.current,
+    onLanguageChange: (language) => {
+      console.log('🔄 Lenguaje cambiado en Monaco:', language);
+      setIsDetectingLanguage(false);
+    }
+  });
+
   const { handler, status, cancelPending, forceExecute, executeImmediately, isAutoExecutionEnabled } =
     useDebouncedCodeRunner({
       runCode: (code: string) => runCode(code),
       onStatusChange: (status) => {
-        // Opcional: logging para debugging
-        console.log("🔄 Estado de ejecución:", status);
+        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+          console.log("🔄 Estado de ejecución:", status);
+        }
       },
       onCodeClear: () => {
-        // Limpiar resultados cuando se borre todo el código
         setResult("");
-        console.log("🧹 Código eliminado, resultados limpiados");
+        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+          console.log("🧹 Código eliminado, resultados limpiados");
+        }
       },
     });
 
-  // Hook de autosave con integración al debounce inteligente optimizado
   const {
     saveSession,
     loadSession,
     saveCursorPosition,
     getCursorPosition,
-    lastSaved,
     isAutoSaveEnabled,
     isLoadingSession,
   } = useAutoSave({
-    executionStatus: status, 
+    executionStatus: status,
   });
 
-  // Referencia para evitar cargas múltiples
   const sessionLoadAttemptedRef = useRef(false);
-
-  // Referencias adicionales para controlar ejecución automática
-  const sessionJustLoadedRef = useRef(false);
-  const hasExecutableContentRef = useRef(false);
-  const runCodeRef = useRef(runCode);
   const lastExecutedCodeRef = useRef<string>('');
-  const initialExecutionDoneRef = useRef(false);
+  const initialExecutionDoneRef = useRef<boolean>(false);
+  const sessionJustLoadedRef = useRef<boolean>(false);
+  const hasExecutableContentRef = useRef<boolean>(false);
 
-  // Actualizar la ref cuando runCode cambie
-  useEffect(() => {
-    runCodeRef.current = runCode;
-  }, [runCode]);
-
-  // Cargar sesión al montar el componente (solo una vez)
   useEffect(() => {
     if (!sessionLoadAttemptedRef.current && !isLoadingSession) {
       sessionLoadAttemptedRef.current = true;
       const hasExecutableContent = loadSession();
-      
+
       if (hasExecutableContent) {
-        console.log("🔄 Sesión anterior restaurada con contenido ejecutable");
-        // Limpiar resultados anteriores al cargar sesión para evitar confusión
+        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+          console.log(SYSTEM_MESSAGES.SESSION_RESTORED);
+        }
         setResult("");
         sessionJustLoadedRef.current = true;
         hasExecutableContentRef.current = true;
-        
-        // Después de un tiempo, permitir ejecución automática nuevamente
+
         setTimeout(() => {
           sessionJustLoadedRef.current = false;
-          // En este punto, el useEffect de activeFile debería ejecutar el código automáticamente
-        }, 1000);
+        }, SESSION_CONFIG.DEBOUNCE_DELAY);
       } else {
-        // Si no se cargó una sesión o no hay contenido ejecutable, limpiar resultados
         setResult("");
       }
     }
   }, [loadSession, isLoadingSession, setResult]);
 
-  // Ejecutar código cuando cambie el archivo activo o al iniciar la aplicación
   useEffect(() => {
-    // No ejecutar si no hay archivo activo o si está cargando sesión
     if (!activeFile || isLoadingSession) return;
-    
+
     const currentCode = activeFile.content || '';
-    
-    // Si el código es el mismo que ya ejecutamos, evitar ejecutarlo de nuevo
+
     if (currentCode === lastExecutedCodeRef.current && initialExecutionDoneRef.current) {
-      console.log("⏭️ Evitando re-ejecución del mismo código");
+      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+        console.log(SYSTEM_MESSAGES.AVOIDING_REEXECUTION);
+      }
       return;
     }
-    
-    // Si estamos justo después de cargar sesión
+
     if (sessionJustLoadedRef.current) {
-      // Si hay auto ejecución activa y contenido ejecutable, ejecutar una sola vez
       if (isAutoExecutionEnabled && hasExecutableContentRef.current && currentCode.trim() !== '') {
-        console.log("⚡ Ejecutando código inicial automáticamente");
+        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+          console.log(SYSTEM_MESSAGES.AUTO_EXECUTING);
+        }
         executeImmediately(currentCode);
         lastExecutedCodeRef.current = currentCode;
         initialExecutionDoneRef.current = true;
       }
-      
-      // Restaurar posición del cursor sin importar si se ejecuta o no
-      if (editorInstanceRef.current && monacoInstanceRef.current) {
+
+      if (SESSION_CONFIG.AUTO_RESTORE_CURSOR && editorInstanceRef.current && monacoInstanceRef.current) {
         const savedPosition = getCursorPosition(activeFile.id);
         if (savedPosition) {
           editorInstanceRef.current.setPosition({
@@ -163,15 +159,15 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       return;
     }
 
-    // Para cambios normales de archivo activo (solo si el contenido ha cambiado)
     if (currentCode.trim() !== '' && currentCode !== lastExecutedCodeRef.current) {
-      console.log("🔄 Auto-ejecutando código existente");
-      runCodeRef.current(currentCode);
+      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+        console.log(SYSTEM_MESSAGES.AUTO_EXECUTING_DEBOUNCE);
+      }
+      handler(currentCode);
       lastExecutedCodeRef.current = currentCode;
       initialExecutionDoneRef.current = true;
 
-      // Restaurar posición del cursor
-      if (editorInstanceRef.current && monacoInstanceRef.current) {
+      if (SESSION_CONFIG.AUTO_RESTORE_CURSOR && editorInstanceRef.current && monacoInstanceRef.current) {
         const savedPosition = getCursorPosition(activeFile.id);
         if (savedPosition) {
           editorInstanceRef.current.setPosition({
@@ -181,33 +177,25 @@ function EDITOR({ editorRef }: EditorProps = {}) {
         }
       }
     } else if (currentCode.trim() === '') {
-      // Si hay un archivo activo pero está vacío, limpiar resultados
-      console.log("📄 Editor vacío, limpiando resultados");
+      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+        console.log(SYSTEM_MESSAGES.EDITOR_EMPTY);
+      }
       setResult("");
       lastExecutedCodeRef.current = '';
     }
-  }, [activeFile, getCursorPosition, setResult, executeImmediately, isAutoExecutionEnabled, isLoadingSession]);
+  }, [activeFile, getCursorPosition, setResult, executeImmediately, isAutoExecutionEnabled, isLoadingSession, handler]);
 
-  // Actualizar autocompletado cuando cambien los paquetes instalados
   useEffect(() => {
     if (monacoInstanceRef.current) {
       refreshPackageCompletions(monacoInstanceRef.current);
     }
   }, [installedPackages]);
 
-  // Configurar snippets cuando cambien
   useEffect(() => {
     if (monacoInstanceRef.current) {
       setupSnippets(monacoInstanceRef.current, () => snippetsState.snippets);
     }
   }, [snippetsState.snippets]);
-
-  // Función para actualizar snippets
-  const updateSnippets = useCallback(() => {
-    if (monacoInstanceRef.current) {
-      refreshSnippets(monacoInstanceRef.current);
-    }
-  }, []);
 
   function handleEditorWillMountWrapper(monaco: any) {
     monacoInstanceRef.current = monaco;
@@ -215,20 +203,29 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   }
 
   function handleEditorDidMountWrapper(editor: any, monaco: any) {
-    // Almacenar la instancia de monaco para uso futuro
     monacoRef.current = monaco;
     monacoInstanceRef.current = monaco;
     editorInstanceRef.current = editor;
 
-    // Establecer la referencia externa si se proporciona
     if (editorRef) {
       editorRef.current = editor;
     }
 
-    // Configurar el editor con el nuevo sistema
-    handleEditorDidMount(editor, monaco);
+    handleEditorDidMount(
+      editor,
+      monaco,
+      activeFile?.id,
+      activeFile?.name
+    );
 
-    // Escuchar cambios de posición del cursor para autosave
+    // Sincronizar lenguaje inmediatamente después del mount
+    setTimeout(() => {
+      if (activeFile && activeFile.content) {
+        console.log('🔄 Sincronizando lenguaje después del mount');
+        syncLanguage();
+      }
+    }, 200);
+
     editor.onDidChangeCursorPosition((e: any) => {
       if (activeFile) {
         saveCursorPosition(
@@ -239,28 +236,33 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       }
     });
 
-    // Configurar comando personalizado de guardado
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      saveSession(true); // Forzar guardado manual
-      console.log("💾 Sesión guardada manualmente (forzada)");
+      saveSession(AUTO_SAVE_CONFIG.FORCE_SAVE_ON_EXIT);
+      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+        console.log(SYSTEM_MESSAGES.SESSION_SAVED_FORCED);
+      }
     });
 
-    // Agregar comando para ejecución forzada (Ctrl+Enter)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       if (status.type === "pending" || status.type === "debouncing") {
         forceExecute();
       }
     });
 
-    // Agregar comando para cancelar ejecución (Escape)
     editor.addCommand(monaco.KeyCode.Escape, () => {
       if (status.type === "pending" || status.type === "debouncing") {
         cancelPending();
       }
     });
+
+    // Comando para forzar sincronización de lenguaje (Ctrl+Shift+L)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL, () => {
+      console.log('🔄 Forzando sincronización de lenguaje (Ctrl+Shift+L)');
+      setIsDetectingLanguage(true);
+      forceSync();
+    });
   }
 
-  // Limpiar al desmontar
   useEffect(() => {
     return () => {
       if (cleanupRef.current) {
@@ -269,37 +271,59 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     };
   }, []);
 
-  // Manejar cambios en el editor con debounce inteligente
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
       if (value !== undefined && activeFile) {
         actions.updateFileContent(activeFile.id, value);
-        handler(value); // Usar el handler del debounce inteligente
+        handler(value);
+        
+        // Usar la detección centralizada para cambios significativos
+        const hasSignificantChange = LANGUAGE_DETECTION_CONFIG.SIGNIFICANT_PATTERNS.some(pattern => 
+          pattern.test(value)
+        );
+        
+        if (hasSignificantChange && !isLanguageSynced) {
+          console.log('🔍 Sintaxis significativa detectada durante edición, sincronizando...');
+          setIsDetectingLanguage(true);
+          
+          setTimeout(() => {
+            syncLanguage();
+          }, 500);
+        }
       }
     },
-    [activeFile, actions, handler]
+    [activeFile, actions, handler, syncLanguage, isLanguageSynced]
   );
 
-  // Función para formatear el tiempo de último guardado
-  const formatLastSaved = (timestamp: number): string => {
-    if (!timestamp) return "Sin guardar";
+  // Sincronizar cuando cambia el archivo activo
+  useEffect(() => {
+    if (activeFile && editorInstanceRef.current && monacoInstanceRef.current) {
+      console.log('📂 Archivo activo cambió, verificando sincronización:', {
+        fileId: activeFile.id,
+        fileName: activeFile.name,
+        language: activeFile.language
+      });
+      
+      // Forzar sincronización después de un pequeño delay
+      setTimeout(() => {
+        forceSync();
+      }, 300);
+    }
+  }, [activeFile?.id, forceSync]);
 
-    const now = Date.now();
-    const diff = now - timestamp;
-
-    if (diff < 60000) return "Guardado hace unos segundos";
-    if (diff < 3600000) return `Guardado hace ${Math.floor(diff / 60000)} min`;
-    return `Guardado hace ${Math.floor(diff / 3600000)} h`;
+  // Convertir configuración de Monaco para evitar errores de tipo
+  const editorOptions = {
+    ...MONACO_EDITOR_CONFIG,
+    rulers: [...MONACO_EDITOR_CONFIG.rulers], // Convertir a mutable array
   };
 
-  // Si no hay archivo activo, mostrar mensaje
   if (!activeFile) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#1e1e1e] text-gray-400">
+      <div className="h-full flex items-center justify-center bg-[var(--theme-bg)] text-[var(--theme-fg)]">
         <div className="text-center">
           {isLoadingSession ? (
             <>
-              <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <div className="animate-spin w-8 h-8 border-2 border-[var(--theme-accent)] border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-lg mb-2">🔄 Cargando sesión...</p>
               <p className="text-sm">Restaurando archivos anteriores</p>
             </>
@@ -321,30 +345,56 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
   return (
     <div className="relative h-full">
-      {/* Botón del Dashboard */}
+      {/* Controles superiores */}
+      <div className="absolute top-2 right-4 z-20 flex items-center gap-2">
+        <ThemeSelector />
+        
+        <button
+          onClick={() => setIsDashboardVisible(true)}
+          className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
+          title="Abrir Dashboard de Métricas"
+        >
+          📊 Métricas
+        </button>
+      </div>
+
+      {/* Botón de sincronización de lenguaje */}
       <button
-        onClick={() => setIsDashboardVisible(true)}
-        className="absolute top-2 right-4 z-20 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
-        title="Abrir Dashboard de Métricas"
+        onClick={() => {
+          setIsDetectingLanguage(true);
+          forceSync();
+        }}
+        className={`absolute top-2 right-48 z-20 px-3 py-1 rounded text-sm transition-colors ${
+          isLanguageSynced 
+            ? 'bg-green-600 hover:bg-green-700 text-white' 
+            : 'bg-orange-600 hover:bg-orange-700 text-white'
+        }`}
+        title={`Lenguaje ${isLanguageSynced ? 'sincronizado' : 'no sincronizado'} - Click para forzar sync (Ctrl+Shift+L)`}
       >
-        📊 Métricas
+        {isLanguageSynced ? '✅' : '🔄'} Lang
       </button>
 
-      {/* Dashboard Modal */}
       <ExecutionDashboard
         isVisible={isDashboardVisible}
         onClose={() => setIsDashboardVisible(false)}
         currentMetrics={executionMetrics}
       />
 
-      {/* Indicador de estado de ejecución */}
+      {isDetectingLanguage && (
+        <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-purple-500/90 text-white px-3 py-2 rounded-lg shadow-lg">
+          <div className="flex items-center gap-2">
+            <div className="animate-pulse w-4 h-4 bg-white rounded-full"></div>
+            <span className="text-sm font-medium">🔍 Sincronizando lenguaje...</span>
+          </div>
+        </div>
+      )}
+
       <ExecutionStatusIndicator
         status={status}
         onCancel={cancelPending}
         onForceExecute={forceExecute}
       />
 
-      {/* Indicador de carga de sesión */}
       {isLoadingSession && (
         <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-blue-500/90 text-white px-3 py-2 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
@@ -354,7 +404,6 @@ function EDITOR({ editorRef }: EditorProps = {}) {
         </div>
       )}
 
-      {/* Indicador de estado de transformación/ejecución (secundario) */}
       {(isTransforming || isRunning) && (
         <div className="absolute top-2 left-4 z-10 bg-blue-500/90 text-white px-3 py-2 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
@@ -366,40 +415,15 @@ function EDITOR({ editorRef }: EditorProps = {}) {
         </div>
       )}
 
-      {/* Editor principal */}
       <Editor
         height="100%"
         language={activeFile.language}
         value={activeFile.content}
+        theme={`custom-${themeManager.getCurrentThemeName()}`}
         onChange={handleEditorChange}
-        theme={EDITOR_THEMES.DARK}
         beforeMount={handleEditorWillMountWrapper}
         onMount={handleEditorDidMountWrapper}
-        options={{
-          fontSize: EDITOR_CONFIG.FONT_SIZE,
-          tabSize: EDITOR_CONFIG.TAB_SIZE,
-          wordWrap: "on",
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          automaticLayout: true,
-          lineNumbers: "on",
-          renderWhitespace: "selection",
-          glyphMargin: true,
-          folding: true,
-          lineDecorationsWidth: 10,
-          lineNumbersMinChars: 3,
-          scrollbar: {
-            vertical: "visible",
-            horizontal: "visible",
-            verticalScrollbarSize: 8,
-            horizontalScrollbarSize: 8,
-          },
-          suggest: {
-            showKeywords: true,
-            showSnippets: true,
-            showFunctions: true,
-          },
-        }}
+        options={editorOptions}
       />
     </div>
   );

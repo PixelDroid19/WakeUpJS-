@@ -4,6 +4,9 @@ import { type ErrorInfo } from "../../context/CodeContext";
 // Re-export para conveniencia
 export type { ErrorInfo } from "../../context/CodeContext";
 
+// Importar configuración de Babel desde code-transformer para evitar duplicación
+import { detectLanguageFromContent, detectLanguageFromFilename, type LanguageDetection } from "./detectors";
+
 // Utilidad para extraer información de errores
 export function parseError(error: any, phase: ErrorInfo['phase']): ErrorInfo {
   const errorMessage = error.message || error.toString();
@@ -70,29 +73,84 @@ function cleanErrorMessage(message: string): string {
   return cleanMessage;
 }
 
+// Configuración de Babel simplificada para validación (usa la misma base que transformCode)
+function getValidationBabelConfig(hasJSX: boolean, hasTypeScript: boolean): { presets: any[] } {
+  const presets: any[] = [];
+
+  if (hasJSX) {
+    presets.push("react");
+  }
+
+  if (hasTypeScript) {
+    presets.push("typescript");
+  }
+
+  // Usar configuración moderna simplificada
+  presets.push([
+    "env",
+    {
+      targets: { esmodules: true },
+      modules: false,
+      loose: false,
+      bugfixes: true
+    }
+  ]);
+
+  return { presets };
+}
+
 // Validación de sintaxis básica antes de la transformación
-export function validateSyntax(code: string): { isValid: boolean; error?: ErrorInfo } {
+export function validateSyntax(code: string, fileLanguage?: string): { isValid: boolean; error?: ErrorInfo } {
   if (!code || code.trim() === '') {
     return { isValid: true };
   }
 
   try {
-    // Intentar parsear con Babel sin transformar
-    // Incluir presets para JSX y TypeScript para validación completa
+    // Usar la misma lógica de detección que transformCode
+    let detection: LanguageDetection;
+    
+    if (fileLanguage && fileLanguage.includes('.')) {
+      detection = detectLanguageFromFilename(fileLanguage);
+    } else if (fileLanguage) {
+      // Mapeo simple de languageId
+      switch (fileLanguage) {
+        case 'typescript':
+        case 'ts':
+          detection = { extension: '.ts', languageId: 'typescript', hasJSX: false, hasTypeScript: true };
+          break;
+        case 'tsx':
+        case 'typescriptreact':
+          detection = { extension: '.tsx', languageId: 'typescriptreact', hasJSX: true, hasTypeScript: true };
+          break;
+        case 'jsx':
+        case 'javascriptreact':
+          detection = { extension: '.jsx', languageId: 'javascriptreact', hasJSX: true, hasTypeScript: false };
+          break;
+        default:
+          detection = { extension: '.js', languageId: 'javascript', hasJSX: false, hasTypeScript: false };
+          break;
+      }
+    } else {
+      detection = detectLanguageFromContent(code);
+    }
+
+    const { hasJSX, hasTypeScript } = detection;
+    const { presets } = getValidationBabelConfig(hasJSX, hasTypeScript);
+
+    // Intentar parsear con Babel usando configuración simplificada
     transform(code, {
-      filename: 'validation.js',
-      presets: [
-        'typescript',
-        ['react', {
-          runtime: 'classic',
-          throwIfNamespace: false
-        }]
-      ],
+      filename: hasJSX
+        ? hasTypeScript ? "validation.tsx" : "validation.jsx"
+        : hasTypeScript ? "validation.ts" : "validation.js",
+      presets,
       sourceType: 'module',
       parserOpts: {
         allowAwaitOutsideFunction: true,
         allowReturnOutsideFunction: true,
         strictMode: false,
+        allowImportExportEverywhere: true,
+        allowSuperOutsideMethod: true,
+        allowUndeclaredExports: true
       },
       code: false, // Solo parsear, no generar código
     });

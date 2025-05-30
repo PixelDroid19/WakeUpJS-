@@ -1,18 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
-  Download, 
-  Trash2, 
   Search, 
   Package, 
+  Trash2, 
   CheckCircle, 
-  AlertCircle, 
-  RefreshCw,
-  X,
+  ExternalLink, 
+  X, 
   Plus,
-  ExternalLink,
+  RefreshCw,
   HardDrive,
   Clock,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Download
 } from 'lucide-react';
 import { usePackageManager, type Package as PackageType } from '../context/PackageManagerContext';
 
@@ -30,7 +29,6 @@ export function PackageManager({ isOpen, onClose }: PackageManagerProps) {
     uninstallPackage,
     searchPackages,
     refreshPackages,
-    checkForUpdates,
     updatePackage,
     totalInstalled,
     totalSize,

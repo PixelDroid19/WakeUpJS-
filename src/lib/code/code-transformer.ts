@@ -12,7 +12,9 @@ import {
   formatErrorForDisplay,
   CodeLogger,
 } from "./errorHandler";
-import { detectJSX, detectTypeScript } from "./detectors";
+import { 
+  detectLanguageFromContent,
+} from "./detectors";
 
 // Registrar plugins de Babel
 registerPlugins({
@@ -32,7 +34,7 @@ const preprocessImportsExports = (code: string): string => {
   // Convertir imports de ES6 a requires
   processedCode = processedCode.replace(
     /import\s+(.+?)\s+from\s+['"`]([^'"`]+)['"`];?/g,
-    (match, importClause, moduleName) => {
+    (_match, importClause, moduleName) => {
       // Manejar diferentes tipos de imports
       if (importClause.includes("{")) {
         // Named imports: import { useState, useEffect } from 'react'
@@ -58,7 +60,7 @@ const preprocessImportsExports = (code: string): string => {
   // Convertir named exports
   processedCode = processedCode.replace(
     /export\s+\{([^}]+)\};?/g,
-    (match, exports) => {
+    (_match, exports) => {
       const exportItems = exports.split(",").map((item: string) => {
         const trimmed = item.trim();
         if (trimmed.includes(" as ")) {
@@ -84,13 +86,13 @@ const preprocessImportsExports = (code: string): string => {
  * Determina la configuración de Babel basada en el tipo de código
  * @param hasJSX - Si el código contiene JSX
  * @param hasTypeScript - Si el código contiene TypeScript
- * @param fileLanguage - Lenguaje del archivo especificado externamente
+ * @param languageHint - Sugerencia de lenguaje desde el sistema (opcional)
  * @returns Configuración de presets y plugins
  */
 const getBabelConfig = (
   hasJSX: boolean, 
   hasTypeScript: boolean, 
-  fileLanguage?: string
+  languageHint?: string
 ) => {
   const presets: any[] = [];
   const plugins: any[] = [
@@ -104,7 +106,7 @@ const getBabelConfig = (
     CodeLogger.log("info", "Preset React agregado para JSX");
   }
 
-  if (hasTypeScript || fileLanguage === "typescript") {
+  if (hasTypeScript || languageHint === "typescript") {
     presets.push("typescript");
     CodeLogger.log("info", "Preset TypeScript agregado");
   }
@@ -126,7 +128,7 @@ const getBabelConfig = (
       loose: false,       // Transformaciones precisas
       bugfixes: true,     // Correcciones de bugs habilitadas
       debug: false,       // Sin debug verbose
-      // Solo incluir características que sabemos que están disponibles
+      // Solo incluir características que están confirmadas
       include: [
         // Características básicas que están confirmadas
         "proposal-object-rest-spread", 
@@ -216,12 +218,13 @@ function App() {
 /**
  * Transforma código JavaScript/TypeScript/JSX usando Babel
  * @param code - Código a transformar
- * @param fileLanguage - Lenguaje del archivo (opcional)
+ * @param languageHint - Sugerencia de lenguaje desde el sistema (opcional)
  * @returns Código transformado
  */
-export const transformCode = (code: string, fileLanguage?: string): string => {
+export const transformCode = (code: string, languageHint?: string): string => {
   CodeLogger.log("info", "Iniciando transformación de código", {
     codeLength: code.length,
+    languageHint,
   });
 
   // Verificar presets disponibles para debug
@@ -249,18 +252,19 @@ export const transformCode = (code: string, fileLanguage?: string): string => {
     throw new Error(formatErrorForDisplay(validation.error));
   }
 
-  // Detectar automáticamente el tipo de contenido
-  const hasJSX = detectJSX(processedCode);
-  const hasTypeScript = detectTypeScript(processedCode);
+  // Detectar automáticamente el tipo de contenido - OPTIMIZADO para eficiencia
+  const detection = detectLanguageFromContent(processedCode);
+  const { hasJSX, hasTypeScript } = detection;
 
-  CodeLogger.log("info", "Detección de contenido", {
+  CodeLogger.log("info", "Detección de contenido completada", {
     hasJSX,
     hasTypeScript,
-    fileLanguage,
+    languageHint,
+    detectedLanguageId: detection.languageId,
   });
 
   // Determinar configuración de Babel
-  const { presets, plugins } = getBabelConfig(hasJSX, hasTypeScript, fileLanguage);
+  const { presets, plugins } = getBabelConfig(hasJSX, hasTypeScript, languageHint);
 
   try {
     CodeLogger.log("info", "Configuración final de Babel", {
@@ -269,16 +273,21 @@ export const transformCode = (code: string, fileLanguage?: string): string => {
       hasJSX,
       hasTypeScript,
       hasModules: code.includes("import") || code.includes("export"),
+      detectedLanguage: detection.languageId,
     });
 
+    // Determinar filename para babel basado en la detección de contenido, no en extensión de archivo
+    let filename = "index.js";
+    if (hasJSX && hasTypeScript) {
+      filename = "index.tsx";
+    } else if (hasJSX) {
+      filename = "index.jsx";
+    } else if (hasTypeScript) {
+      filename = "index.ts";
+    }
+
     const result = transform(processedCode, {
-      filename: hasJSX
-        ? hasTypeScript
-          ? "index.tsx"
-          : "index.jsx"
-        : hasTypeScript
-        ? "index.ts"
-        : "index.js",
+      filename,
       presets,
       sourceType: "module",
       parserOpts: {
@@ -346,6 +355,8 @@ export const transformCode = (code: string, fileLanguage?: string): string => {
       presetsUsed: presets.map((p) => (typeof p === "string" ? p : p[0])),
       outputLength: result.code.length,
       hasModules: code.includes("import") || code.includes("export"),
+      finalLanguage: detection.languageId,
+      usedFilename: filename,
     });
 
     return result.code;

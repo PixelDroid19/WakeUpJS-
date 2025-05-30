@@ -53,22 +53,15 @@ export default function ({ types: t }: any): { visitor: TraverseOptions<Node> } 
 		return false;
 	}
 
-	function createDebugCall(path: any, expression?: any) {
+	function _replaceWithDebug(path: any, expression?: any) {
 		const lineNumber = path.node.loc.start.line;
 		const expr = expression || path.node;
 		
 		return t.callExpression(t.identifier('debug'), [
 			t.numericLiteral(lineNumber),
-			t.stringLiteral('log'), // método por defecto
+			t.stringLiteral('log'), 
 			expr
 		]);
-	}
-
-	function replaceWithDebug(path: any, expression?: any) {
-		if (shouldSkipExpression(path)) return;
-		
-		const debugCall = createDebugCall(path, expression);
-		path.replaceWith(debugCall);
 	}
 
 	return {
@@ -96,7 +89,7 @@ export default function ({ types: t }: any): { visitor: TraverseOptions<Node> } 
 				// Solo transformar expresiones simples que estén sueltas
 				const expr = path.node.expression;
 				if (expr && path.node.loc?.start?.line) {
-					const debugCall = createDebugCall(path, expr);
+					const debugCall = _replaceWithDebug(path, expr);
 					path.replaceWith(t.expressionStatement(debugCall));
 				}
 			}

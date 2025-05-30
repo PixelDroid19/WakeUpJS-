@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ExecutionStatus } from '../hooks/useDebouncedCodeRunner';
 
 interface ExecutionStatusIndicatorProps {

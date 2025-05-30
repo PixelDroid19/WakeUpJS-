@@ -1,17 +1,16 @@
-import React, { useContext, useMemo, useRef, useEffect } from "react";
-import { CodeResultContext } from "../context/CodeContext";
+import { useContext, useMemo, useRef, useEffect, useCallback } from "react";
+import { CodeResultContext, ResultElement } from "../context/CodeContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useToolbar } from "../context/ToolbarContext";
 import { useAutoExecutionConfig } from "../context/ConfigContext";
 import { useCodeEditor } from "../hooks/useCodeEditor";
 import Editor from "@monaco-editor/react";
-import { EDITOR_THEMES, EDITOR_CONFIG } from "../constants/config";
+import { EDITOR_CONFIG } from "../constants/config";
+import { themeManager } from "../lib/themes/theme-manager";
 import {
-  ResultType,
   ConsoleMethod,
   Colors,
-  ResultElement,
-} from "../types/result"; 
+} from "../types/result";
 
 const CONSOLE_METHOD_PREFIXES: {
   [key in ConsoleMethod]: { prefix: string; color: Colors };
@@ -79,12 +78,12 @@ function Result() {
   }
 
   function handleEditorWillMount(monaco: any) {
-    import("./onedark.json")
-      .then((data) => {
-        monaco.editor.defineTheme(EDITOR_THEMES.DARK, data);
-      })
-      .catch((e) => console.error("Error al cargar el tema:", e)); // Mejorar el log de error
-
+    // El sistema de temas se maneja automáticamente por el themeManager
+    // Solo necesitamos establecer la instancia de Monaco si no está ya configurada
+    if (!themeManager.getCurrentTheme()) {
+      themeManager.setMonacoInstance(monaco);
+    }
+    
     monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
   }
 
@@ -93,21 +92,21 @@ function Result() {
   }
 
   // Función para obtener el prefijo y color según el tipo de resultado
-  const getResultPrefix = React.useCallback(
+  const getResultPrefix = useCallback(
     (
-      type: ResultType,
-      method?: ConsoleMethod
+      type: string,
+      method?: string
     ): { prefix: string; color: Colors } => {
-      if (method && CONSOLE_METHOD_PREFIXES[method]) {
-        return CONSOLE_METHOD_PREFIXES[method];
+      if (method && CONSOLE_METHOD_PREFIXES[method as ConsoleMethod]) {
+        return CONSOLE_METHOD_PREFIXES[method as ConsoleMethod];
       }
 
       switch (type) {
-        case ResultType.ERROR:
+        case "error":
           return { prefix: "❌ ", color: Colors.ERROR };
-        case ResultType.WARNING:
+        case "warning":
           return { prefix: "⚠️ ", color: Colors.WARNING };
-        case ResultType.INFO:
+        case "info":
           return { prefix: "ℹ️ ", color: Colors.INFO };
         default:
           return { prefix: "📝 ", color: Colors.GRAY };
@@ -117,7 +116,7 @@ function Result() {
   );
 
   // Función para formatear el resultado con colores apropiados
-  const formatResult = React.useCallback(
+  const formatResult = useCallback(
     (element: ResultElement): string => {
       const { prefix } = getResultPrefix(element.type, element.method);
       let content = element.element.content;
@@ -210,7 +209,7 @@ function Result() {
 
   // Efecto para manejar errores específicos del motor de ejecución
   useEffect(() => {
-    if (error && !elements.some(e => e.type === ResultType.ERROR)) {
+    if (error && !elements.some(e => e.type === "error")) {
       // Si hay un error del motor pero no está en los elementos de resultado,
       // podríamos añadirlo manualmente si tuviéramos acceso directo a la actualización
       console.error("Error detectado por el motor:", error);
@@ -289,7 +288,7 @@ function Result() {
   return (
     <div className="text-cyan-50 bg-[#1e1e1e] relative h-full">
       <Editor
-        theme={EDITOR_THEMES.DARK}
+        theme={`custom-${themeManager.getCurrentThemeName()}`}
         options={{
           domReadOnly: true,
           experimentalWhitespaceRendering: "svg",
@@ -307,8 +306,8 @@ function Result() {
             "'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace",
           wordWrap: "on",
           readOnly: true,
-          lineNumbers: "on", // Muestra los números de línea
-          renderLineHighlight: "none",
+          lineNumbers: "on" as const, // Muestra los números de línea
+          renderLineHighlight: "none" as const,
           showUnused: false,
           suggest: {
             selectionMode: "never",
@@ -324,7 +323,7 @@ function Result() {
           letterSpacing: 0.5,
           // Quitar borde de selección para mejorar la estética de solo lectura
           selectionHighlight: false,
-          occurrencesHighlight: false,
+          occurrencesHighlight: "off",
         }}
         defaultLanguage="javascript" // Ajusta si se necesita otro lenguaje por defecto
         value={resultText}
@@ -358,28 +357,28 @@ function Result() {
               <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
               {elements.length} resultado{elements.length !== 1 ? "s" : ""}
             </span>
-            {elements.filter((e) => e.type === ResultType.ERROR).length > 0 && (
+            {elements.filter((e) => e.type === "error").length > 0 && (
               <span className="flex items-center gap-1">
                 <div className="w-1.5 h-1.5 bg-red-400 rounded-full"></div>
                 {
-                  elements.filter((e) => e.type === ResultType.ERROR).length
+                  elements.filter((e) => e.type === "error").length
                 }{" "}
                 error
-                {elements.filter((e) => e.type === ResultType.ERROR).length !==
+                {elements.filter((e) => e.type === "error").length !==
                 1
                   ? "es"
                   : ""}
               </span>
             )}
-            {elements.filter((e) => e.type === ResultType.WARNING).length >
+            {elements.filter((e) => e.type === "warning").length >
               0 && (
               <span className="flex items-center gap-1">
                 <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></div>
                 {
-                  elements.filter((e) => e.type === ResultType.WARNING).length
+                  elements.filter((e) => e.type === "warning").length
                 }{" "}
                 warning
-                {elements.filter((e) => e.type === ResultType.WARNING)
+                {elements.filter((e) => e.type === "warning")
                   .length !== 1
                   ? "s"
                   : ""}
