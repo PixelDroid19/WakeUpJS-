@@ -1,7 +1,218 @@
 import { createCustomConsole } from "./console-api";
-import { createReactContext, createJSXRuntime } from "./react-context";
-import { ModuleSystem } from "./module-system";
 import { GLOBAL_CONTEXT_CONFIG } from '../../constants/config';
+
+/**
+ * Sistema de gestión de módulos para el entorno de ejecución
+ */
+class ModuleSystem {
+  private moduleRegistry = new Map<string, any>();
+
+  constructor() {
+    this.setupDefaultModules();
+  }
+
+  /**
+   * Configura los módulos predeterminados del sistema
+   */
+  private setupDefaultModules() {
+    // Paquetes adicionales comunes
+    this.moduleRegistry.set("lodash", {
+      map: (collection: any, iteratee: Function) => collection.map(iteratee),
+      filter: (collection: any, predicate: Function) =>
+        collection.filter(predicate),
+      reduce: (collection: any, iteratee: Function, accumulator: any) =>
+        collection.reduce(iteratee, accumulator),
+      cloneDeep: (obj: any) => JSON.parse(JSON.stringify(obj)),
+      isEqual: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b),
+      debounce: (func: Function, delay: number) => {
+        let timeoutId: any;
+        return (...args: any[]) => {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => func.apply(null, args), delay);
+        };
+      },
+    });
+  }
+
+  /**
+   * Registra React y su runtime en el sistema de módulos
+   * @param React - Instancia de React
+   * @param jsxRuntime - Runtime de JSX
+   */
+  registerReact(React: any, jsxRuntime: any) {
+    this.moduleRegistry.set("react", React);
+    this.moduleRegistry.set("react/jsx-runtime", jsxRuntime);
+  }
+
+  /**
+   * Sistema de require/import personalizado
+   * @param moduleName - Nombre del módulo a cargar
+   * @returns Módulo solicitado
+   */
+  createRequire() {
+    return (moduleName: string) => {
+      console.log("📦 Cargando módulo:", moduleName);
+
+      if (this.moduleRegistry.has(moduleName)) {
+        return this.moduleRegistry.get(moduleName);
+      }
+
+      // Intentar cargar desde paquetes instalados
+      const installedPackages = JSON.parse(
+        localStorage.getItem("jsrunner-packages") || "{}"
+      );
+      if (installedPackages[moduleName]) {
+        console.log("📦 Módulo encontrado en paquetes instalados:", moduleName);
+        // En una implementación real, aquí cargaríamos desde CDN
+        return installedPackages[moduleName];
+      }
+
+      throw new Error(
+        `Cannot find module '${moduleName}'. Instálalo usando el gestor de paquetes.`
+      );
+    };
+  }
+
+  /**
+   * Registra un nuevo módulo en el sistema
+   * @param name - Nombre del módulo
+   * @param module - Contenido del módulo
+   */
+  registerModule(name: string, module: any) {
+    this.moduleRegistry.set(name, module);
+    console.log("📦 Módulo registrado:", name);
+  }
+
+  /**
+   * Obtiene la lista de módulos disponibles
+   * @returns Array con los nombres de módulos disponibles
+   */
+  getAvailableModules(): string[] {
+    return Array.from(this.moduleRegistry.keys());
+  }
+}
+
+/**
+ * Crea una simulación completa de React para el entorno de ejecución
+ * @returns Objeto React con todos los métodos y componentes necesarios
+ */
+const createReactContext = () => {
+  const React: any = {
+    createElement: (type: any, props: any, ...children: any[]) => {
+      return {
+        type,
+        props: {
+          ...props,
+          children: children.length === 1 ? children[0] : children,
+        },
+        $$typeof: Symbol.for("react.element"),
+      };
+    },
+    Fragment: Symbol.for("react.fragment"),
+
+    // Hooks completos
+    useState: (initial: any) => {
+      let state = initial;
+      const setState = (newState: any) => {
+        state = typeof newState === "function" ? newState(state) : newState;
+        console.log("Estado actualizado:", state);
+        return state;
+      };
+      return [state, setState];
+    },
+
+    useEffect: (effect: Function, _deps?: any[]) => {
+      console.log("useEffect ejecutado");
+      try {
+        const cleanup = effect();
+        if (typeof cleanup === "function") {
+          console.log("useEffect cleanup registrado");
+        }
+        return cleanup;
+      } catch (error) {
+        console.error("Error en useEffect:", error);
+      }
+    },
+
+    useContext: (context: any) => {
+      console.log("useContext llamado");
+      return context._currentValue || context.defaultValue;
+    },
+
+    useReducer: (reducer: Function, initialState: any) => {
+      let state = initialState;
+      const dispatch = (action: any) => {
+        state = reducer(state, action);
+        console.log("Estado reducer actualizado:", state);
+        return state;
+      };
+      return [state, dispatch];
+    },
+
+    useMemo: (factory: Function, _deps?: any[]) => {
+      console.log("useMemo ejecutado");
+      return factory();
+    },
+
+    useCallback: (callback: Function, _deps?: any[]) => {
+      console.log("useCallback ejecutado");
+      return callback;
+    },
+
+    useRef: (initialValue?: any) => {
+      return { current: initialValue };
+    },
+
+    // Utilidades adicionales
+    createContext: (defaultValue?: any) => {
+      return {
+        Provider: ({ value, children }: any) => ({
+          type: "Provider",
+          props: { value, children },
+          $$typeof: Symbol.for("react.element"),
+        }),
+        Consumer: ({ children }: any) => ({
+          type: "Consumer",
+          props: { children },
+          $$typeof: Symbol.for("react.element"),
+        }),
+        _currentValue: defaultValue,
+        defaultValue,
+      };
+    },
+  };
+
+  // Componentes básicos (definidos después de React para evitar referencias circulares)
+  React.Component = class Component {
+    props: any;
+    constructor(props: any) {
+      this.props = props;
+    }
+    render() {
+      return null;
+    }
+  };
+
+  React.PureComponent = class PureComponent extends React.Component {
+    shouldComponentUpdate(nextProps: any) {
+      // Shallow comparison
+      return JSON.stringify(this.props) !== JSON.stringify(nextProps);
+    }
+  };
+
+  return React;
+};
+
+/**
+ * Crea el runtime de JSX para React
+ * @param React - Instancia de React
+ * @returns Objeto con funciones jsx y jsxs
+ */
+const createJSXRuntime = (React: any) => ({
+  jsx: React.createElement,
+  jsxs: React.createElement,
+  Fragment: React.Fragment,
+});
 
 /**
  * Implementación de funciones de diálogo personalizadas

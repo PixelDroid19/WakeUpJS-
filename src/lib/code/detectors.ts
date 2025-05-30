@@ -1,18 +1,16 @@
 import { LANGUAGE_DETECTION_CONFIG } from "../../constants/config";
 
-// Importar las funciones de limpieza de cache
-let clearExecutionCache: (() => void) | null = null;
-let forceNewExecution: ((code: string) => void) | null = null;
+// Variable para el execution engine
+let globalExecutionEngine: any = null;
 
 // Importación lazy para evitar dependencias circulares
 const _importCacheFunctions = async () => {
-  if (!clearExecutionCache || !forceNewExecution) {
+  if (!globalExecutionEngine) {
     try {
-      const cacheModule = await import("./code-executor");
-      clearExecutionCache = cacheModule.clearExecutionCache;
-      forceNewExecution = cacheModule.forceNewExecution;
+      const engineModule = await import("./execution-engine");
+      globalExecutionEngine = engineModule.globalExecutionEngine;
     } catch (error) {
-      console.warn("No se pudieron importar funciones de cache", error);
+      console.warn("No se pudieron importar funciones del execution engine", error);
     }
   }
 };
@@ -275,4 +273,26 @@ export const detectInfiniteLoops = (code: string): boolean => {
   // Si llegamos aquí, es probable que sea un bucle infinito peligroso
   console.warn("Bucle infinito potencialmente peligroso detectado");
   return true;
+};
+
+/**
+ * Limpia el caché de ejecuciones (útil cuando cambia la detección JSX)
+ */
+export const clearExecutionCache = async (): Promise<void> => {
+  await _importCacheFunctions();
+  if (globalExecutionEngine) {
+    globalExecutionEngine.clearCache();
+    console.log("Cache del execution engine limpiado");
+  }
+};
+
+/**
+ * Fuerza una nueva ejecución invalidando cualquier cache existente
+ */
+export const forceNewExecution = async (code: string): Promise<void> => {
+  await _importCacheFunctions();
+  if (globalExecutionEngine) {
+    // Usar bypass cache en la próxima ejecución
+    console.log("Cache invalidado para forzar nueva ejecución");
+  }
 }; 

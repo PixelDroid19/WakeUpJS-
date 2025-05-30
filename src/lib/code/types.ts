@@ -46,4 +46,98 @@ export interface ProcessedContent {
   [key: string]: any;
 }
 
-export type ResultType = "execution" | "error" | "warning" | "info"; 
+export type ResultType = "execution" | "error" | "warning" | "info";
+
+// ===============================
+// FUNCIONES DE RESULTADO (consolidadas desde result-helpers.ts)
+// ===============================
+
+/**
+ * Determina el tipo de resultado basado en el método de console
+ * @param method - Método de console utilizado
+ * @returns Tipo de resultado correspondiente
+ */
+export const getResultType = (method: string): ResultType => {
+  switch (method) {
+    case "error":
+    case "exception": // Deprecated alias for error
+      return "error";
+    case "warn":
+      return "warning";
+    case "info":
+    case "debug":
+    case "trace":
+      return "info";
+    default:
+      return "execution";
+  }
+};
+
+/**
+ * Obtiene el color apropiado según el método de console
+ * @param method - Método de console utilizado
+ * @param defaultColor - Color por defecto si no hay específico
+ * @returns Color correspondiente al método
+ */
+export const getColorForMethod = (method: string, defaultColor?: Colors): Colors => {
+  switch (method) {
+    // Métodos de error
+    case "error":
+    case "exception": // Deprecated alias for error
+    case "assert":
+      return Colors.ERROR;
+    
+    // Métodos de advertencia
+    case "warn":
+      return Colors.WARNING;
+    
+    // Métodos informativos
+    case "info":
+    case "debug":
+    case "trace":
+      return Colors.INFO;
+    
+    // Métodos de visualización avanzada
+    case "table":
+    case "dir":
+    case "dirxml":
+      return Colors.BLUE;
+    
+    // Métodos de agrupación
+    case "group":
+    case "groupCollapsed":
+    case "groupEnd":
+      return Colors.PURPLE;
+    
+    // Métodos de conteo
+    case "count":
+    case "countReset":
+      return Colors.CYAN;
+    
+    // Métodos de tiempo
+    case "time":
+    case "timeEnd":
+    case "timeLog":
+    case "timeStamp":
+      return Colors.YELLOW;
+    
+    // Métodos de profiling
+    case "profile":
+    case "profileEnd":
+      return Colors.MAGENTA;
+    
+    // Método de limpieza
+    case "clear":
+      return Colors.GRAY;
+    
+    // Métodos experimentales/específicos de Chrome
+    case "context":
+    case "createTask":
+      return Colors.GREEN;
+    
+    // Método básico por defecto
+    case "log":
+    default:
+      return defaultColor || Colors.GRAY;
+  }
+}; 
