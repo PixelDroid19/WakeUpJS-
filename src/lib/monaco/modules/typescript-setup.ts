@@ -13,88 +13,190 @@
  */
 
 export function setupTypeScriptConfiguration(monaco: any): void {
-  console.log("🔷 Configurando TypeScript en Monaco");
+  console.log('🔧 Configurando TypeScript en Monaco...');
   
-  if (!monaco.languages.typescript) {
-    console.warn("⚠️ TypeScript no disponible en Monaco");
-    return;
+  try {
+    // Obtener defaults de TypeScript y JavaScript
+    const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+    const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+
+    if (!tsDefaults || !jsDefaults) {
+      console.error('❌ No se encontraron los defaults de TypeScript/JavaScript');
+      return;
+    }
+
+    // Configuración robusta del compilador TypeScript
+    const tsCompilerOptions = {
+      // Opciones básicas de compilación
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      module: monaco.languages.typescript.ModuleKind.ESNext,
+      lib: ['dom', 'es2020', 'es2021.string', 'es2021.promise', 'es2021.object'],
+      
+      // Habilitar características de TypeScript
+      allowJs: true,
+      allowNonTsExtensions: true,
+      allowSyntheticDefaultImports: true,
+      allowUmdGlobalAccess: true,
+      
+      // JSX support mejorado
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      jsxFactory: 'React.createElement',
+      jsxFragmentFactory: 'React.Fragment',
+      jsxImportSource: 'react',
+      
+      // Resolución de módulos
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      baseUrl: '.',
+      esModuleInterop: true,
+      forceConsistentCasingInFileNames: true,
+      
+      // Características del lenguaje (CRÍTICO para interfaces)
+      strict: false, // Permitir más flexibilidad
+      noImplicitAny: false,
+      strictNullChecks: false,
+      strictFunctionTypes: false,
+      noImplicitReturns: false,
+      noImplicitThis: false,
+      
+      // Emisión y código
+      noEmit: true,
+      isolatedModules: false, // Importante: permitir tipos globales
+      skipLibCheck: true,
+      skipDefaultLibCheck: true,
+      
+      // Experimentales y características avanzadas
+      experimentalDecorators: true,
+      emitDecoratorMetadata: true,
+      useDefineForClassFields: false,
+      
+      // Resolución de paths
+      paths: {
+        '*': ['./node_modules/*', './*']
+      },
+      
+      // Tipos adicionales
+      types: ['react', 'react-dom', 'node'],
+      typeRoots: ['./node_modules/@types', './types']
+    };
+
+    // Configuración JavaScript (más permisiva)
+    const jsCompilerOptions = {
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      module: monaco.languages.typescript.ModuleKind.ESNext,
+      lib: ['dom', 'es2020'],
+      
+      allowJs: true,
+      allowNonTsExtensions: true,
+      allowSyntheticDefaultImports: true,
+      allowUmdGlobalAccess: true,
+      
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      jsxFactory: 'React.createElement',
+      jsxFragmentFactory: 'React.Fragment',
+      
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      baseUrl: '.',
+      esModuleInterop: true,
+      
+      // Menos estricto para JavaScript
+      strict: false,
+      noImplicitAny: false,
+      strictNullChecks: false,
+      
+      noEmit: true,
+      isolatedModules: false,
+      skipLibCheck: true,
+      skipDefaultLibCheck: true,
+      
+      checkJs: false, // No verificar JavaScript estrictamente
+      
+      paths: {
+        '*': ['./node_modules/*', './*']
+      }
+    };
+
+    console.log('📝 Aplicando opciones del compilador TypeScript:', tsCompilerOptions);
+    tsDefaults.setCompilerOptions(tsCompilerOptions);
+    
+    console.log('📝 Aplicando opciones del compilador JavaScript:', jsCompilerOptions);
+    jsDefaults.setCompilerOptions(jsCompilerOptions);
+
+    // Configurar diagnósticos - MUY IMPORTANTE para evitar errores de "interface only in TS files"
+    setupDiagnostics(tsDefaults, jsDefaults);
+    
+    // Configurar IntelliSense
+    setupIntelliSense(tsDefaults, jsDefaults);
+    
+    // Agregar definiciones de tipos comunes
+    addCommonTypeDefinitions(tsDefaults, jsDefaults);
+    
+    // Configurar el worker de TypeScript
+    configureTypeScriptWorker(monaco);
+    
+    // Habilitar eager model sync para ambos
+    tsDefaults.setEagerModelSync(true);
+    jsDefaults.setEagerModelSync(true);
+    
+    // Configurar máximo de workers
+    tsDefaults.setWorkerOptions({
+      maxIdleTime: 10000,
+      workerIdleTimeLimit: 10000
+    });
+    jsDefaults.setWorkerOptions({
+      maxIdleTime: 10000,
+      workerIdleTimeLimit: 10000
+    });
+
+    console.log('✅ Configuración de TypeScript completada exitosamente');
+    
+    // Validar configuración
+    setTimeout(() => {
+      validateTypeScriptConfiguration(tsDefaults, jsDefaults);
+    }, 500);
+    
+  } catch (error) {
+    console.error('❌ Error configurando TypeScript:', error);
   }
-
-  const tsDefaults = monaco.languages.typescript.typescriptDefaults;
-  const jsDefaults = monaco.languages.typescript.javascriptDefaults;
-
-  // Configuración unificada para TypeScript y JavaScript
-  const compilerOptions = {
-    target: monaco.languages.typescript.ScriptTarget.ES2022,
-    lib: ["ES2022", "DOM", "DOM.Iterable"],
-    allowJs: true,
-    allowSyntheticDefaultImports: true,
-    allowUmdGlobalAccess: true,
-    esModuleInterop: true,
-    experimentalDecorators: true,
-    emitDecoratorMetadata: true,
-    isolatedModules: false,
-    jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
-    jsxFactory: "React.createElement",
-    jsxFragmentFactory: "React.Fragment",
-    jsxImportSource: "react",
-    module: monaco.languages.typescript.ModuleKind.ESNext,
-    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-    resolveJsonModule: true,
-    skipLibCheck: true,
-    strict: false,
-    noImplicitAny: false,
-    strictNullChecks: false,
-    strictFunctionTypes: false,
-    noImplicitReturns: false,
-    noFallthroughCasesInSwitch: false,
-    noUncheckedIndexedAccess: false,
-    exactOptionalPropertyTypes: false,
-    noImplicitOverride: false,
-    noPropertyAccessFromIndexSignature: false,
-    useUnknownInCatchVariables: false,
-    allowUnreachableCode: true,
-    allowUnusedLabels: true,
-    declaration: false,
-    declarationMap: false,
-    sourceMap: false,
-    inlineSourceMap: false,
-    removeComments: false,
-    typeRoots: ["node_modules/@types"],
-    types: ["react", "node"],
-  };
-
-  // Aplicar configuración a TypeScript
-  tsDefaults.setCompilerOptions(compilerOptions);
-
-  // Aplicar configuración similar a JavaScript con JSX
-  jsDefaults.setCompilerOptions({
-    ...compilerOptions,
-    allowJs: true,
-    checkJs: false,
-    strict: false,
-    noImplicitAny: false,
-  });
-
-  setupDiagnostics(tsDefaults, jsDefaults);
-  setupIntelliSense(tsDefaults, jsDefaults);
-  addCommonTypeDefinitions(tsDefaults, jsDefaults);
-  
-  console.log("✅ Configuración avanzada de TypeScript aplicada");
 }
 
 function setupDiagnostics(tsDefaults: any, jsDefaults: any): void {
-  const diagnosticsOptions = {
-    noSemanticValidation: false,
-    noSyntaxValidation: false,
-    noSuggestionDiagnostics: false, // Habilitar para mejor hover
-    diagnosticCodesToIgnore: [],
-  };
-
-  tsDefaults.setDiagnosticsOptions(diagnosticsOptions);
-  jsDefaults.setDiagnosticsOptions(diagnosticsOptions);
+  console.log('🔧 Configurando diagnósticos de TypeScript...');
   
-  console.log("✅ Configuración de diagnósticos aplicada");
+  try {
+    // Configuración de diagnósticos para TypeScript (más permisiva)
+    tsDefaults.setDiagnosticsOptions({
+      noSemanticValidation: false, // Permitir validación semántica
+      noSyntaxValidation: false,   // Permitir validación de sintaxis
+      noSuggestionDiagnostics: false, // Permitir sugerencias
+      
+      // Errores específicos a ignorar (códigos de error de TypeScript)
+      diagnosticCodesToIgnore: [
+        1308, // 'await' expression is only allowed within an async function
+        1005, // ';' expected
+        1002, // Unterminated string literal
+        // NO incluir 1184 que es sobre interfaces en archivos TS
+      ]
+    });
+    
+    // Configuración más permisiva para JavaScript
+    jsDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,  // Desactivar validación semántica para JS
+      noSyntaxValidation: false,   // Mantener validación de sintaxis básica
+      noSuggestionDiagnostics: true, // Desactivar sugerencias para JS
+      
+      diagnosticCodesToIgnore: [
+        1308, 1005, 1002, 
+        1184, // Interfaces not allowed in JS files
+        2304, // Cannot find name
+        2552, // Cannot find name (similar)
+      ]
+    });
+    
+    console.log('✅ Diagnósticos configurados');
+    
+  } catch (error) {
+    console.error('❌ Error configurando diagnósticos:', error);
+  }
 }
 
 function setupIntelliSense(tsDefaults: any, jsDefaults: any): void {
@@ -528,12 +630,212 @@ declare function fetch(
   console.log("✅ Archivos de definición de tipos agregados");
 }
 
-export function configureTypeScriptWorker(monaco: any): void {
-  if (!monaco.languages.typescript) return;
+export function configureTypeScriptWorker(monaco: any): Promise<boolean> {
+  if (!monaco?.languages?.typescript) {
+    console.error('✔ Error configurando TypeScript worker: Servicio TypeScript no disponible');
+    return Promise.resolve(false);
+  }
   
-  monaco.languages.typescript.getTypeScriptWorker().then((worker: any) => {
-    console.log("✅ TypeScript worker configurado correctamente");
-  }).catch((error: any) => {
-    console.error("❌ Error configurando TypeScript worker:", error);
-  });
+  // Forzar la inicialización de los workers de TypeScript/JavaScript
+  try {
+    // Asegurarse de que las opciones estén configuradas antes de obtener el worker
+    const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+    const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+    
+    // Desactivar y reactivar el eager sync para forzar la reinicialización
+    tsDefaults.setEagerModelSync(false);
+    jsDefaults.setEagerModelSync(false);
+    
+    // Pequeña pausa para permitir que se apliquen los cambios
+    return new Promise(resolve => {
+      setTimeout(() => {
+        // Reactivar eager sync
+        tsDefaults.setEagerModelSync(true);
+        jsDefaults.setEagerModelSync(true);
+        
+        // Ahora intentar obtener el worker
+        monaco.languages.typescript.getTypeScriptWorker()
+          .then((worker: any) => {
+            if (!worker) {
+              throw new Error('Worker de TypeScript no disponible después de reinicialización');
+            }
+            console.log("✅ TypeScript worker configurado correctamente");
+            return resolve(true);
+          })
+          .catch((error: any) => {
+            console.error("✔ Error configurando TypeScript worker después de reinicialización:", error);
+            return attemptWorkerRecovery(monaco).then(resolve);
+          });
+      }, 100);
+    });
+  } catch (error) {
+    console.error("✔ Error en la configuración del worker de TypeScript:", error);
+    return attemptWorkerRecovery(monaco);
+  }
+}
+
+/**
+ * Intenta recuperar el worker de TypeScript
+ */
+async function attemptWorkerRecovery(monaco: any): Promise<boolean> {
+  try {
+    console.log('🔧 Iniciando recuperación del worker de TypeScript...');
+    
+    if (!monaco?.languages?.typescript) {
+      throw new Error('Servicio TypeScript no disponible para recuperación');
+    }
+
+    const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+    const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+
+    if (!tsDefaults || !jsDefaults) {
+      throw new Error('Defaults de TypeScript no disponibles');
+    }
+
+    // Paso 1: Verificar configuración actual
+    const currentTsOptions = tsDefaults.getCompilerOptions();
+    const currentJsOptions = jsDefaults.getCompilerOptions();
+    
+    console.log('📋 Configuración actual before recovery:', {
+      tsAllowNonTs: currentTsOptions.allowNonTsExtensions,
+      tsAllowJs: currentTsOptions.allowJs,
+      jsAllowNonTs: currentJsOptions.allowNonTsExtensions
+    });
+
+    // Paso 2: Temporalmente deshabilitar eager sync
+    tsDefaults.setEagerModelSync(false);
+    jsDefaults.setEagerModelSync(false);
+
+    // Paso 3: Esperar para que se desconecten los workers
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Paso 4: Reconfigurar opciones críticas
+    tsDefaults.setCompilerOptions({
+      ...currentTsOptions,
+      allowNonTsExtensions: true,
+      allowJs: true,
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX
+    });
+
+    jsDefaults.setCompilerOptions({
+      ...currentJsOptions,
+      allowNonTsExtensions: true,
+      allowJs: true
+    });
+
+    // Paso 5: Re-habilitar eager sync (esto fuerza recreación de workers)
+    tsDefaults.setEagerModelSync(true);
+    jsDefaults.setEagerModelSync(true);
+
+    // Paso 6: Esperar y validar
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Paso 7: Verificar que el worker funciona
+    const tsWorker = await monaco.languages.typescript.getTypeScriptWorker();
+    if (!tsWorker) {
+      throw new Error('Worker sigue no disponible después de recuperación');
+    }
+
+    console.log('✅ Worker de TypeScript recuperado exitosamente');
+    return true;
+
+  } catch (recoveryError) {
+    console.error('❌ Error durante recuperación del worker:', recoveryError);
+    
+    // Último intento: reconfiguración completa
+    return attemptFullReconfiguration(monaco);
+  }
+}
+
+/**
+ * Último recurso: reconfiguración completa de TypeScript
+ */
+async function attemptFullReconfiguration(monaco: any): Promise<boolean> {
+  try {
+    console.log('🔄 Último intento: reconfiguración completa de TypeScript...');
+    
+    // Reconfigurar completamente TypeScript
+    setupTypeScriptConfiguration(monaco);
+    
+    // Esperar más tiempo para la reconfiguración
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Validar nuevamente
+    const worker = await monaco.languages.typescript.getTypeScriptWorker();
+    
+    if (worker) {
+      console.log('✅ Reconfiguración completa exitosa');
+      return true;
+    } else {
+      console.error('❌ Reconfiguración completa falló');
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('❌ Error en reconfiguración completa:', error);
+    return false;
+  }
+}
+
+// Nueva función para validar la configuración
+function validateTypeScriptConfiguration(tsDefaults: any, jsDefaults: any): void {
+  try {
+    console.log('🔍 Validando configuración de TypeScript...');
+    
+    // Verificar opciones del compilador TypeScript
+    const tsOptions = tsDefaults.getCompilerOptions();
+    console.log('📋 Opciones TypeScript:', {
+      allowNonTsExtensions: tsOptions.allowNonTsExtensions,
+      allowJs: tsOptions.allowJs,
+      jsx: tsOptions.jsx,
+      strict: tsOptions.strict,
+      isolatedModules: tsOptions.isolatedModules,
+      target: tsOptions.target
+    });
+    
+    // Verificar opciones de diagnóstico TypeScript
+    const tsDiagnostics = tsDefaults.getDiagnosticsOptions();
+    console.log('🔍 Diagnósticos TypeScript:', {
+      noSemanticValidation: tsDiagnostics.noSemanticValidation,
+      noSyntaxValidation: tsDiagnostics.noSyntaxValidation,
+      diagnosticCodesToIgnore: tsDiagnostics.diagnosticCodesToIgnore
+    });
+    
+    // Verificar opciones del compilador JavaScript
+    const jsOptions = jsDefaults.getCompilerOptions();
+    console.log('📋 Opciones JavaScript:', {
+      allowNonTsExtensions: jsOptions.allowNonTsExtensions,
+      allowJs: jsOptions.allowJs,
+      checkJs: jsOptions.checkJs,
+      strict: jsOptions.strict
+    });
+    
+    // Verificar opciones de diagnóstico JavaScript
+    const jsDiagnostics = jsDefaults.getDiagnosticsOptions();
+    console.log('🔍 Diagnósticos JavaScript:', {
+      noSemanticValidation: jsDiagnostics.noSemanticValidation,
+      noSyntaxValidation: jsDiagnostics.noSyntaxValidation,
+      diagnosticCodesToIgnore: jsDiagnostics.diagnosticCodesToIgnore
+    });
+    
+    // Verificaciones críticas
+    const criticalIssues = [];
+    
+    if (!tsOptions.allowNonTsExtensions) {
+      criticalIssues.push('allowNonTsExtensions no está habilitado en TypeScript');
+    }
+    
+    if (tsDiagnostics.noSemanticValidation) {
+      criticalIssues.push('Validación semántica deshabilitada en TypeScript');
+    }
+    
+    if (criticalIssues.length > 0) {
+      console.warn('⚠️ Problemas críticos encontrados:', criticalIssues);
+    } else {
+      console.log('✅ Configuración de TypeScript validada correctamente');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error validando configuración de TypeScript:', error);
+  }
 } 

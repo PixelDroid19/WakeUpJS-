@@ -19,7 +19,7 @@ interface UseCodeEditorResult {
 
 interface UseCodeEditorParams {
   onResult: (result: any) => void;
-  onCodeChange: (code: string) => void;
+  onCodeChange?: (code: string) => void;
 }
 
 export const useCodeEditor = ({ onResult, onCodeChange: _onCodeChange }: UseCodeEditorParams): UseCodeEditorResult => {

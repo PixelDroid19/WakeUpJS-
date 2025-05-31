@@ -20,7 +20,13 @@ export {
   refreshPackageCompletions,
   detectAndSetMonacoLanguage,
   autoUpdateLanguage,
-  forceModelRevalidation
+  forceModelRevalidation,
+  deepDiagnoseAndRepairTypeScriptModel,
+  // Nuevas exportaciones para workers
+  setupMonacoWorkers,
+  validateWorkers,
+  restartTypeScriptWorkers,
+  setupWorkerRecovery,
 } from './monacoSetup';
 
 export {
@@ -45,5 +51,7 @@ export {
   generateAutoFilename,
   detectJSX,
   detectTypeScript,
+  detectLanguageIntelligent,
+  requiresTypeScriptMode,
   type LanguageDetection
 } from '../code/detectors'; 

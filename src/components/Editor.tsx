@@ -31,6 +31,16 @@ interface EditorProps {
   editorRef?: React.MutableRefObject<any>;
 }
 
+// Función de logging condicional para producción
+const debugLog = (message: string, data?: any) => {
+  if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
+    console.log(message, data);
+  }
+};
+
+// Cache para patrones de detección significativa
+let significantPatternsCache: readonly RegExp[] | null = null;
+
 function EDITOR({ editorRef }: EditorProps = {}) {
   const { setResult } = useContext(CodeResultContext);
   const { actions, utils } = useWorkspace();
@@ -42,6 +52,16 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const monacoInstanceRef = useRef<any>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const editorInstanceRef = useRef<any>(null);
+  
+  // Refs para cleanup de timeouts (prevenir memory leaks)
+  const timeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+  
+  // ✅ NUEVO: Refs para debounce del workspace y prevenir interferencias con el cursor
+  const workspaceUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingActiveRef = useRef<boolean>(false);
+  const lastWorkspaceUpdateRef = useRef<string>('');
+  const typingInactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null); // ✅ NUEVO: Limpiar flag después de inactividad
+  const isExecutingRef = useRef<boolean>(false); // ✅ NUEVO: Track si se está ejecutando código
 
   const activeFile = utils.getActiveFile();
 
@@ -53,11 +73,6 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     executionMetrics,
   } = useCodeEditor({
     onResult: setResult,
-    onCodeChange: (code: string) => {
-      if (activeFile) {
-        actions.updateFileContent(activeFile.id, code);
-      }
-    },
   });
 
   // Hook de sincronización Monaco-Workspace
@@ -65,7 +80,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     editorInstance: editorInstanceRef.current,
     monacoInstance: monacoInstanceRef.current,
     onLanguageChange: (language) => {
-      console.log('🔄 Lenguaje cambiado en Monaco:', language);
+      debugLog('🔄 Lenguaje cambiado en Monaco:', language);
       setIsDetectingLanguage(false);
     }
   });
@@ -74,15 +89,11 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     useDebouncedCodeRunner({
       runCode: (code: string) => runCode(code),
       onStatusChange: (status) => {
-        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-          console.log("🔄 Estado de ejecución:", status);
-        }
+        debugLog("🔄 Estado de ejecución:", status);
       },
       onCodeClear: () => {
         setResult("");
-        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-          console.log("🧹 Código eliminado, resultados limpiados");
-        }
+        debugLog("🧹 Código eliminado, resultados limpiados");
       },
     });
 
@@ -103,27 +114,46 @@ function EDITOR({ editorRef }: EditorProps = {}) {
   const sessionJustLoadedRef = useRef<boolean>(false);
   const hasExecutableContentRef = useRef<boolean>(false);
 
+  // Función helper para manejar timeouts con cleanup automático
+  const createTimeout = useCallback((callback: () => void, delay: number): NodeJS.Timeout => {
+    const timeoutId = setTimeout(() => {
+      callback();
+      timeoutsRef.current.delete(timeoutId);
+    }, delay);
+    
+    timeoutsRef.current.add(timeoutId);
+    return timeoutId;
+  }, []);
+
+  // Función optimizada para detectar cambios significativos con cache
+  const hasSignificantChange = useCallback((value: string): boolean => {
+    if (!significantPatternsCache) {
+      significantPatternsCache = LANGUAGE_DETECTION_CONFIG.SIGNIFICANT_PATTERNS;
+    }
+    
+    // significantPatternsCache is guaranteed to be non-null here
+    return significantPatternsCache!.some(pattern => pattern.test(value));
+  }, []);
+
   useEffect(() => {
     if (!sessionLoadAttemptedRef.current && !isLoadingSession) {
       sessionLoadAttemptedRef.current = true;
       const hasExecutableContent = loadSession();
 
       if (hasExecutableContent) {
-        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-          console.log(SYSTEM_MESSAGES.SESSION_RESTORED);
-        }
+        debugLog(SYSTEM_MESSAGES.SESSION_RESTORED);
         setResult("");
         sessionJustLoadedRef.current = true;
         hasExecutableContentRef.current = true;
 
-        setTimeout(() => {
+        createTimeout(() => {
           sessionJustLoadedRef.current = false;
         }, SESSION_CONFIG.DEBOUNCE_DELAY);
       } else {
         setResult("");
       }
     }
-  }, [loadSession, isLoadingSession, setResult]);
+  }, [loadSession, isLoadingSession, setResult, createTimeout]);
 
   useEffect(() => {
     if (!activeFile || isLoadingSession) return;
@@ -131,25 +161,27 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     const currentCode = activeFile.content || '';
 
     if (currentCode === lastExecutedCodeRef.current && initialExecutionDoneRef.current) {
-      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-        console.log(SYSTEM_MESSAGES.AVOIDING_REEXECUTION);
-      }
+      debugLog(SYSTEM_MESSAGES.AVOIDING_REEXECUTION);
       return;
     }
 
     if (sessionJustLoadedRef.current) {
       if (isAutoExecutionEnabled && hasExecutableContentRef.current && currentCode.trim() !== '') {
-        if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-          console.log(SYSTEM_MESSAGES.AUTO_EXECUTING);
-        }
+        debugLog(SYSTEM_MESSAGES.AUTO_EXECUTING);
         executeImmediately(currentCode);
         lastExecutedCodeRef.current = currentCode;
         initialExecutionDoneRef.current = true;
       }
 
-      if (SESSION_CONFIG.AUTO_RESTORE_CURSOR && editorInstanceRef.current && monacoInstanceRef.current) {
+      // ✅ MEJORADO: Solo restaurar cursor al cargar sesión y si no se está escribiendo NI ejecutando
+      if (SESSION_CONFIG.AUTO_RESTORE_CURSOR && 
+          editorInstanceRef.current && 
+          monacoInstanceRef.current && 
+          !isTypingActiveRef.current && 
+          !isExecutingRef.current) {
         const savedPosition = getCursorPosition(activeFile.id);
         if (savedPosition) {
+          debugLog('🔄 Restaurando posición del cursor al cargar sesión:', savedPosition);
           editorInstanceRef.current.setPosition({
             lineNumber: savedPosition.line,
             column: savedPosition.column,
@@ -160,26 +192,12 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     }
 
     if (currentCode.trim() !== '' && currentCode !== lastExecutedCodeRef.current) {
-      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-        console.log(SYSTEM_MESSAGES.AUTO_EXECUTING_DEBOUNCE);
-      }
+      debugLog(SYSTEM_MESSAGES.AUTO_EXECUTING_DEBOUNCE);
       handler(currentCode);
       lastExecutedCodeRef.current = currentCode;
       initialExecutionDoneRef.current = true;
-
-      if (SESSION_CONFIG.AUTO_RESTORE_CURSOR && editorInstanceRef.current && monacoInstanceRef.current) {
-        const savedPosition = getCursorPosition(activeFile.id);
-        if (savedPosition) {
-          editorInstanceRef.current.setPosition({
-            lineNumber: savedPosition.line,
-            column: savedPosition.column,
-          });
-        }
-      }
     } else if (currentCode.trim() === '') {
-      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-        console.log(SYSTEM_MESSAGES.EDITOR_EMPTY);
-      }
+      debugLog(SYSTEM_MESSAGES.EDITOR_EMPTY);
       setResult("");
       lastExecutedCodeRef.current = '';
     }
@@ -199,6 +217,16 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
   function handleEditorWillMountWrapper(monaco: any) {
     monacoInstanceRef.current = monaco;
+    
+    // Asegurarse de que monaco esté completamente configurado antes de cualquier otra operación
+    console.log('⚙️ Configurando Monaco con @monaco-editor/react...');
+    
+    // Importante: registrar TypeScript explícitamente
+    if (monaco.languages && !monaco.languages.typescript) {
+      console.warn('⚠️ TypeScript no está registrado, intentando registrarlo explícitamente');
+      // Este es solo un registro de advertencia, @monaco-editor/react debería manejarlo automáticamente
+    }
+    
     cleanupRef.current = handleEditorWillMount(monaco);
   }
 
@@ -219,15 +247,16 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     );
 
     // Sincronizar lenguaje inmediatamente después del mount
-    setTimeout(() => {
+    createTimeout(() => {
       if (activeFile && activeFile.content) {
-        console.log('🔄 Sincronizando lenguaje después del mount');
+        debugLog('🔄 Sincronizando lenguaje después del mount');
         syncLanguage();
       }
     }, 200);
 
-    editor.onDidChangeCursorPosition((e: any) => {
-      if (activeFile) {
+    // Mejorar tipado del evento del cursor
+    editor.onDidChangeCursorPosition((e: { position: { lineNumber: number; column: number } }) => {
+      if (activeFile && e.position) {
         saveCursorPosition(
           activeFile.id,
           e.position.lineNumber,
@@ -238,9 +267,7 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveSession(AUTO_SAVE_CONFIG.FORCE_SAVE_ON_EXIT);
-      if (DEBUG_CONFIG.ENABLE_CONSOLE_LOGS) {
-        console.log(SYSTEM_MESSAGES.SESSION_SAVED_FORCED);
-      }
+      debugLog(SYSTEM_MESSAGES.SESSION_SAVED_FORCED);
     });
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
@@ -257,59 +284,149 @@ function EDITOR({ editorRef }: EditorProps = {}) {
 
     // Comando para forzar sincronización de lenguaje (Ctrl+Shift+L)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL, () => {
-      console.log('🔄 Forzando sincronización de lenguaje (Ctrl+Shift+L)');
+      debugLog('🔄 Forzando sincronización de lenguaje (Ctrl+Shift+L)');
       setIsDetectingLanguage(true);
       forceSync();
     });
   }
 
+  // Cleanup mejorado con limpieza de timeouts
   useEffect(() => {
     return () => {
+      // Limpiar todos los timeouts
+      timeoutsRef.current.forEach(timeoutId => {
+        clearTimeout(timeoutId);
+      });
+      timeoutsRef.current.clear();
+
+      // ✅ NUEVO: Limpiar timeouts del workspace
+      if (workspaceUpdateTimeoutRef.current) {
+        clearTimeout(workspaceUpdateTimeoutRef.current);
+      }
+      if (typingInactivityTimeoutRef.current) {
+        clearTimeout(typingInactivityTimeoutRef.current);
+      }
+
+      // ✅ NUEVO: Limpiar referencias de estado
+      isTypingActiveRef.current = false;
+      isExecutingRef.current = false;
+
+      // Limpiar otros recursos
       if (cleanupRef.current) {
         cleanupRef.current();
       }
     };
   }, []);
 
+  // ✅ NUEVO: Función helper para actualizar workspace de forma debounced
+  const updateWorkspaceContent = useCallback((value: string, immediate: boolean = false) => {
+    if (!activeFile) return;
+
+    // Si es una actualización inmediata o el contenido no ha cambiado, actualizar directamente
+    if (immediate || value === lastWorkspaceUpdateRef.current) {
+      actions.updateFileContent(activeFile.id, value);
+      lastWorkspaceUpdateRef.current = value;
+      return;
+    }
+
+    // Limpiar timeouts anteriores
+    if (workspaceUpdateTimeoutRef.current) {
+      clearTimeout(workspaceUpdateTimeoutRef.current);
+    }
+    if (typingInactivityTimeoutRef.current) {
+      clearTimeout(typingInactivityTimeoutRef.current);
+    }
+
+    // Marcar que se está escribiendo
+    isTypingActiveRef.current = true;
+
+    // Debounce la actualización del workspace para evitar interferencias con el cursor
+    workspaceUpdateTimeoutRef.current = setTimeout(() => {
+      actions.updateFileContent(activeFile.id, value);
+      lastWorkspaceUpdateRef.current = value;
+      isTypingActiveRef.current = false; // ✅ Limpiar flag al completar actualización
+    }, 150); // 150ms de debounce para actualizaciones del workspace
+
+    // ✅ NUEVO: Timeout de seguridad para limpiar flag después de inactividad prolongada
+    typingInactivityTimeoutRef.current = setTimeout(() => {
+      if (isTypingActiveRef.current) {
+        debugLog('⏱️ Limpiando flag de escritura activa por inactividad prolongada');
+        isTypingActiveRef.current = false;
+      }
+    }, 2000); // 2 segundos de inactividad para limpiar flag
+  }, [activeFile, actions]);
+
+  // ✅ NUEVO: Trackear estado de ejecución para evitar interferencias con el cursor
+  useEffect(() => {
+    const wasExecuting = isExecutingRef.current;
+    const isCurrentlyExecuting = isRunning || isTransforming || 
+                                 status.type === 'executing' || 
+                                 status.type === 'pending' || 
+                                 status.type === 'debouncing';
+    
+    isExecutingRef.current = isCurrentlyExecuting;
+    
+    // Log para debugging
+    if (wasExecuting !== isCurrentlyExecuting) {
+      debugLog(`🔄 Estado de ejecución cambió: ${wasExecuting} → ${isCurrentlyExecuting}`, {
+        isRunning,
+        isTransforming,
+        statusType: status.type,
+        isTypingActive: isTypingActiveRef.current
+      });
+    }
+  }, [isRunning, isTransforming, status.type]);
+
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
       if (value !== undefined && activeFile) {
-        actions.updateFileContent(activeFile.id, value);
+        // ✅ MEJORADO: Usar debounce para actualizaciones del workspace
+        updateWorkspaceContent(value);
+        
+        // Handler para ejecución (mantener inmediato para responsividad)
         handler(value);
         
-        // Usar la detección centralizada para cambios significativos
-        const hasSignificantChange = LANGUAGE_DETECTION_CONFIG.SIGNIFICANT_PATTERNS.some(pattern => 
-          pattern.test(value)
-        );
-        
-        if (hasSignificantChange && !isLanguageSynced) {
-          console.log('🔍 Sintaxis significativa detectada durante edición, sincronizando...');
+        // Usar la detección optimizada con cache (solo si no se está escribiendo activamente)
+        if (hasSignificantChange(value) && !isLanguageSynced && !isTypingActiveRef.current) {
+          debugLog('🔍 Sintaxis significativa detectada durante edición, sincronizando...');
           setIsDetectingLanguage(true);
           
-          setTimeout(() => {
-            syncLanguage();
-          }, 500);
+          createTimeout(() => {
+            // Verificar nuevamente que no se esté escribiendo antes de sincronizar
+            if (!isTypingActiveRef.current) {
+              syncLanguage();
+            }
+          }, 800); // Delay mayor para sincronización durante escritura
         }
       }
     },
-    [activeFile, actions, handler, syncLanguage, isLanguageSynced]
+    [activeFile, updateWorkspaceContent, handler, syncLanguage, isLanguageSynced, hasSignificantChange, createTimeout]
   );
 
   // Sincronizar cuando cambia el archivo activo
   useEffect(() => {
     if (activeFile && editorInstanceRef.current && monacoInstanceRef.current) {
-      console.log('📂 Archivo activo cambió, verificando sincronización:', {
+      debugLog('📂 Archivo activo cambió, verificando sincronización:', {
         fileId: activeFile.id,
         fileName: activeFile.name,
         language: activeFile.language
       });
       
-      // Forzar sincronización después de un pequeño delay
-      setTimeout(() => {
-        forceSync();
-      }, 300);
+      // ✅ MEJORADO: Solo sincronizar si no se está escribiendo activamente
+      if (!isTypingActiveRef.current) {
+        createTimeout(() => {
+          // Verificar nuevamente antes de sincronizar
+          if (!isTypingActiveRef.current) {
+            forceSync();
+          } else {
+            debugLog('⏸️ Sincronización pospuesta - usuario escribiendo activamente');
+          }
+        }, 300);
+      } else {
+        debugLog('⏸️ Archivo cambió pero usuario está escribiendo - sincronización pospuesta');
+      }
     }
-  }, [activeFile?.id, forceSync]);
+  }, [activeFile?.id, forceSync, createTimeout]);
 
   // Convertir configuración de Monaco para evitar errores de tipo
   const editorOptions = {
