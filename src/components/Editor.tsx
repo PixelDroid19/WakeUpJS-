@@ -25,10 +25,10 @@ import {
 import { themeManager } from "../lib/themes/theme-manager";
 import ExecutionStatusIndicator from "./ExecutionStatusIndicator";
 import ExecutionDashboard from "./ExecutionDashboard";
-import ThemeSelector from "./ThemeSelector";
 
 interface EditorProps {
   editorRef?: React.MutableRefObject<any>;
+  onStatusChange?: (status: any) => void;
 }
 
 // Función de logging condicional para producción
@@ -41,7 +41,7 @@ const debugLog = (message: string, data?: any) => {
 // Cache para patrones de detección significativa
 let significantPatternsCache: readonly RegExp[] | null = null;
 
-function EDITOR({ editorRef }: EditorProps = {}) {
+function EDITOR({ editorRef, onStatusChange }: EditorProps = {}) {
   const { setResult } = useContext(CodeResultContext);
   const { actions, utils } = useWorkspace();
   const { installedPackages } = usePackageManager();
@@ -90,6 +90,9 @@ function EDITOR({ editorRef }: EditorProps = {}) {
       runCode: (code: string) => runCode(code),
       onStatusChange: (status) => {
         debugLog("🔄 Estado de ejecución:", status);
+        if (onStatusChange) {
+          onStatusChange(status);
+        }
       },
       onCodeClear: () => {
         setResult("");
@@ -464,8 +467,6 @@ function EDITOR({ editorRef }: EditorProps = {}) {
     <div className="relative h-full">
       {/* Controles superiores */}
       <div className="absolute top-2 right-4 z-20 flex items-center gap-2">
-        <ThemeSelector />
-        
         <button
           onClick={() => setIsDashboardVisible(true)}
           className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
@@ -474,22 +475,6 @@ function EDITOR({ editorRef }: EditorProps = {}) {
           📊 Métricas
         </button>
       </div>
-
-      {/* Botón de sincronización de lenguaje */}
-      <button
-        onClick={() => {
-          setIsDetectingLanguage(true);
-          forceSync();
-        }}
-        className={`absolute top-2 right-48 z-20 px-3 py-1 rounded text-sm transition-colors ${
-          isLanguageSynced 
-            ? 'bg-green-600 hover:bg-green-700 text-white' 
-            : 'bg-orange-600 hover:bg-orange-700 text-white'
-        }`}
-        title={`Lenguaje ${isLanguageSynced ? 'sincronizado' : 'no sincronizado'} - Click para forzar sync (Ctrl+Shift+L)`}
-      >
-        {isLanguageSynced ? '✅' : '🔄'} Lang
-      </button>
 
       <ExecutionDashboard
         isVisible={isDashboardVisible}

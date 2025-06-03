@@ -23,10 +23,11 @@ import { PackageManager } from "./components/PackageManager";
 import EnvironmentVariables from "./components/EnvironmentVariables";
 import SnippetManager from "./components/SnippetManager";
 import { ToolbarProvider } from "./context/ToolbarContext";
-import { ConfigProvider } from "./context/ConfigContext";
+import { ConfigProvider, useConfig } from "./context/ConfigContext";
 import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
-import { PackageManagerProvider } from "./context/PackageManagerContext";
+import { PackageManagerProvider, usePackageManager } from "./context/PackageManagerContext";
 import { SnippetsProvider } from "./context/SnippetsContext";
+import { NotificationProvider } from "./components/SmartNotification";
 import { useCodeEditor } from "./hooks/useCodeEditor";
 import { useContextMenu } from "./hooks/useContextMenu";
 import Split from "react-split";
@@ -85,16 +86,17 @@ function ContextErrorFallback() {
 
 function AppContent() {
   const { result, setResult } = useContext(CodeResultContext);
-  const { state, actions, utils } = useWorkspace();
+  const { state, actions } = useWorkspace();
+  const { direction, sizes, gutterSize, handleDragEnd } = useSplitLayout();
+  const [showPackageManager, setShowPackageManager] = useState(false);
+  const [showEnvVars, setShowEnvVars] = useState(false);
+  const [showSnippetManager, setShowSnippetManager] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<any>(null);
 
-  // Hook para manejar el layout del split
-  const { direction, sizes, handleDragEnd, gutterSize } = useSplitLayout();
-
-  // Referencia para el editor Monaco
   const editorRef = useRef<any>(null);
 
   // Obtener archivo activo y sus estadísticas
-  const activeFile = utils.getActiveFile();
+  const activeFile = state.files.find(f => f.id === state.activeFileId);
 
   // Hook para ejecución de código integrado con workspace
   const { isRunning, isTransforming, error, clearError, runCode } =
@@ -122,11 +124,6 @@ function AppContent() {
     clearError(); // Usar clearError del hook
   }, [setResult, clearError]);
 
-  // Estados para controlar las pestañas de herramientas
-  const [showPackageManager, setShowPackageManager] = useState(false);
-  const [showEnvVars, setShowEnvVars] = useState(false);
-  const [showSnippetManager, setShowSnippetManager] = useState(false);
-
   // Callbacks para mostrar las pestañas
   const handleShowPackageManager = useCallback(() => {
     setShowPackageManager(true);
@@ -141,7 +138,7 @@ function AppContent() {
   }, []);
 
   // Hook para el menú contextual global
-  const { showNativeContextMenu } = useContextMenu({
+  const { showNativeContextMenu: globalShowNativeContextMenu } = useContextMenu({
     onClearResults: clearResults,
     onShowPackageManager: handleShowPackageManager,
     onShowEnvironmentVariables: handleShowEnvironmentVariables,
@@ -153,7 +150,7 @@ function AppContent() {
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       // Usar el menú nativo de Electron si está disponible
-      showNativeContextMenu();
+      globalShowNativeContextMenu();
     };
 
     document.addEventListener("contextmenu", handleContextMenu);
@@ -161,7 +158,7 @@ function AppContent() {
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [showNativeContextMenu]);
+  }, [globalShowNativeContextMenu]);
 
   // Función para cancelar ejecución (placeholder ya que no está soportado)
   const handleCancelExecution = useCallback(() => {
@@ -188,6 +185,7 @@ function AppContent() {
         onShowSnippetManager={handleShowSnippetManager}
         editorRef={editorRef}
         executionStats={executionStats}
+        executionStatus={executionStatus}
       />
 
       {/* FileManager con pestañas mejoradas */}
@@ -202,7 +200,7 @@ function AppContent() {
         onDragEnd={handleDragEnd}
       >
         <div className="relative overflow-hidden">
-          <Editor editorRef={editorRef} />
+          <Editor editorRef={editorRef} onStatusChange={setExecutionStatus} />
 
           {/* Indicador de estado del archivo activo */}
           {activeFile && !isExecuting && (
@@ -342,11 +340,13 @@ function App() {
               <ToolbarProvider>
                 <PackageManagerProvider>
                   <SnippetsProvider>
-                    <Suspense fallback={<ContextErrorFallback />}>
-                      <ContextErrorBoundary>
-                        <SafeAppContent />
-                      </ContextErrorBoundary>
-                    </Suspense>
+                    <NotificationProvider>
+                      <Suspense fallback={<ContextErrorFallback />}>
+                        <ContextErrorBoundary>
+                          <SafeAppContent />
+                        </ContextErrorBoundary>
+                      </Suspense>
+                    </NotificationProvider>
                   </SnippetsProvider>
                 </PackageManagerProvider>
               </ToolbarProvider>

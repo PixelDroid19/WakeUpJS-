@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { usePackageManager } from "../context/PackageManagerContext";
+import { useToolbar } from "../context/ToolbarContext";
 import { useContextMenu } from "../hooks/useContextMenu";
 import EnvironmentVariables from "./EnvironmentVariables";
 import { PackageManager } from "./PackageManager";
@@ -45,6 +46,7 @@ function FileTab({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(file.name);
   const [isHovered, setIsHovered] = useState(false);
+  const { currentTheme } = useToolbar();
 
   const handleRename = () => {
     if (editName.trim() && editName !== file.name) {
@@ -70,18 +72,30 @@ function FileTab({
   };
 
   const getFileTypeGradient = () => {
-    // Gradientes basados en el lenguaje detectado internamente
+    // Gradientes adaptativos basados en el tema actual
+    const isLightTheme = currentTheme.id === 'light-unified';
+    
     switch (file.language) {
       case "typescript":
-        return "from-blue-500/10 to-cyan-500/10 border-blue-500/30";
+        return isLightTheme 
+          ? "from-blue-100/50 to-cyan-100/50 border-blue-400/50"
+          : "from-blue-500/10 to-cyan-500/10 border-blue-500/30";
       case "javascript":
-        return "from-yellow-500/10 to-orange-500/10 border-yellow-500/30";
+        return isLightTheme
+          ? "from-yellow-100/50 to-orange-100/50 border-yellow-400/50"
+          : "from-yellow-500/10 to-orange-500/10 border-yellow-500/30";
       case "html":
-        return "from-orange-500/10 to-red-500/10 border-orange-500/30";
+        return isLightTheme
+          ? "from-orange-100/50 to-red-100/50 border-orange-400/50"
+          : "from-orange-500/10 to-red-500/10 border-orange-500/30";
       case "css":
-        return "from-blue-400/10 to-purple-500/10 border-blue-400/30";
+        return isLightTheme
+          ? "from-blue-100/50 to-purple-100/50 border-blue-400/50"
+          : "from-blue-400/10 to-purple-500/10 border-blue-400/30";
       default:
-        return "from-gray-500/10 to-gray-600/10 border-gray-500/30";
+        return isLightTheme
+          ? "from-gray-100/50 to-gray-200/50 border-gray-400/50"
+          : "from-gray-500/10 to-gray-600/10 border-gray-500/30";
     }
   };
 
@@ -89,14 +103,18 @@ function FileTab({
     <div
       className={`
         group relative flex items-center gap-2 px-4 py-3 cursor-pointer transition-all duration-200 min-w-0 max-w-48
-        border-r border-gray-600/50 backdrop-blur-sm
+        border-r border-opacity-50 backdrop-blur-sm
         ${
           isActive
-            ? `bg-gradient-to-b ${getFileTypeGradient()} border-b-2 border-b-blue-400 shadow-lg`
-            : `bg-gradient-to-b from-gray-800/50 to-gray-800/30 hover:from-gray-700/60 hover:to-gray-700/40 
-             ${isHovered ? "transform scale-[1.02] shadow-md" : ""}`
+            ? `bg-gradient-to-b ${getFileTypeGradient()} border-b-2 shadow-lg`
+            : `hover:shadow-md ${isHovered ? "transform scale-[1.02]" : ""}`
         }
       `}
+      style={{
+        backgroundColor: isActive ? undefined : 'var(--toolbar-hover)',
+        borderColor: 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
+        color: 'var(--toolbar-text)',
+      }}
       onClick={onSelect}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -115,16 +133,20 @@ function FileTab({
               if (e.key === "Enter") handleRename();
               if (e.key === "Escape") setIsEditing(false);
             }}
-            className="bg-gray-900/80 border border-blue-400 px-2 py-1 text-sm min-w-0 flex-1 rounded text-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+            style={{
+              backgroundColor: 'var(--toolbar-bg)',
+              borderColor: 'var(--toolbar-accent)',
+              color: 'var(--toolbar-text)',
+            }}
+            className="border px-2 py-1 text-sm min-w-0 flex-1 rounded focus:outline-none focus:ring-1"
             autoFocus
           />
         ) : (
           <span
             className={`text-sm truncate min-w-0 flex-1 transition-colors ${
-              isActive
-                ? "text-white font-medium"
-                : "text-gray-300 group-hover:text-white"
+              isActive ? "font-medium" : ""
             } ${file.isUnsaved ? "italic" : ""}`}
+            style={{ color: isActive ? 'var(--toolbar-text)' : 'color-mix(in srgb, var(--toolbar-text) 80%, transparent)' }}
             onDoubleClick={() => setIsEditing(true)}
             title={`${file.name} (${file.language})`}
           >
@@ -135,15 +157,16 @@ function FileTab({
         {/* Indicador de archivo sin guardar */}
         {file.isUnsaved && (
           <div
-            className={`w-2 h-2 rounded-full transition-colors ${
-              isActive ? "bg-orange-400" : "bg-orange-500/60"
-            }`}
+            className="w-2 h-2 rounded-full transition-colors"
+            style={{
+              backgroundColor: isActive ? '#f59e0b' : 'color-mix(in srgb, #f59e0b 60%, transparent)'
+            }}
             title="Archivo sin guardar"
           />
         )}
       </div>
 
-      {/* Controles de acción */}
+      {/* Controles de acción con estilos adaptativos */}
       <div
         className={`flex items-center gap-1 transition-all duration-200 ${
           isHovered || isActive ? "opacity-100" : "opacity-0"
@@ -155,9 +178,10 @@ function FileTab({
             onDuplicate();
           }}
           className="p-1 hover:bg-white/20 rounded transition-colors"
+          style={{ color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)' }}
           title="Duplicar archivo"
         >
-          <Copy size={12} className="text-gray-400 hover:text-white" />
+          <Copy size={12} />
         </button>
 
         <button
@@ -166,9 +190,10 @@ function FileTab({
             setIsEditing(true);
           }}
           className="p-1 hover:bg-white/20 rounded transition-colors"
+          style={{ color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)' }}
           title="Renombrar archivo"
         >
-          <Edit size={12} className="text-gray-400 hover:text-white" />
+          <Edit size={12} />
         </button>
 
         <button
@@ -177,9 +202,10 @@ function FileTab({
             onClose();
           }}
           className="p-1 hover:bg-red-500/30 rounded transition-colors"
+          style={{ color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)' }}
           title="Cerrar archivo"
         >
-          <X size={12} className="text-gray-400 hover:text-red-400" />
+          <X size={12} />
         </button>
       </div>
 
@@ -194,6 +220,7 @@ function FileTab({
 function FileManager() {
   const { state, actions, utils } = useWorkspace();
   const { totalInstalled, updatesAvailable } = usePackageManager();
+  const { currentTheme } = useToolbar();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showPackageManager, setShowPackageManager] = useState(false);
@@ -313,11 +340,15 @@ function FileManager() {
 
   return (
     <div 
-      className="bg-gradient-to-b from-gray-800 to-gray-850 border-b border-gray-600/50 shadow-lg"
+      className="border-b shadow-lg"
+      style={{
+        backgroundColor: 'var(--toolbar-bg)',
+        borderColor: 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
+      }}
       onContextMenu={handleWorkspaceContextMenu}
     >
-      {/* Barra de pestañas mejorada */}
-      <div className="flex items-center overflow-x-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 hover:scrollbar-thumb-gray-500">
+      {/* Barra de pestañas mejorada con estilos adaptativos */}
+      <div className="flex items-center overflow-x-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-600 hover:scrollbar-thumb-gray-500">
         {state.files.map((file) => (
           <FileTab
             key={file.id}
@@ -331,13 +362,26 @@ function FileManager() {
           />
         ))}
 
-        {/* Botón para nuevo archivo simplificado */}
+        {/* Botón para nuevo archivo con estilos adaptativos */}
         <button
           onClick={() => setShowNewFileDialog(true)}
-          className="flex items-center gap-2 px-4 py-3 text-gray-400 hover:text-white hover:bg-gradient-to-b hover:from-gray-700/60 hover:to-gray-700/40 transition-all duration-200 border-r border-gray-600/50 min-w-fit"
+          className="flex items-center gap-2 px-4 py-3 hover:shadow-sm transition-all duration-200 border-r min-w-fit"
+          style={{
+            color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
+            backgroundColor: 'transparent',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'var(--toolbar-hover)';
+            e.currentTarget.style.color = 'var(--toolbar-text)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.color = 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)';
+          }}
           title="Nuevo archivo (sin extensión automática)"
         >
-          <Plus size={16} className="text-green-400" />
+          <Plus size={16} style={{ color: 'var(--toolbar-accent)' }} />
           <span className="text-sm font-medium">Nuevo</span>
         </button>
 
@@ -345,26 +389,51 @@ function FileManager() {
         {utils.hasClosedTabs() && (
           <button
             onClick={() => actions.reopenClosedTab()}
-            className="flex items-center gap-2 px-4 py-3 text-gray-400 hover:text-white hover:bg-gradient-to-b hover:from-gray-700/60 hover:to-gray-700/40 transition-all duration-200 border-r border-gray-600/50 min-w-fit"
+            className="flex items-center gap-2 px-4 py-3 hover:shadow-sm transition-all duration-200 border-r min-w-fit"
+            style={{
+              color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)',
+              borderColor: 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
+              backgroundColor: 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--toolbar-hover)';
+              e.currentTarget.style.color = 'var(--toolbar-text)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)';
+            }}
             title="Reabrir pestaña cerrada"
           >
-            <RotateCcw size={16} className="text-blue-400" />
+            <RotateCcw size={16} style={{ color: 'var(--toolbar-accent)' }} />
             <span className="text-sm font-medium">Reabrir</span>
           </button>
         )}
 
-        {/* Espacio flexible */}
-        <div className="flex-1 bg-gradient-to-r from-gray-800/20 to-transparent h-12" />
+        {/* Espacio flexible con gradiente adaptativo */}
+        <div 
+          className="flex-1 h-12"
+          style={{
+            background: `linear-gradient(to right, color-mix(in srgb, var(--toolbar-bg) 50%, transparent), transparent)`
+          }}
+        />
 
-        {/* Información del workspace */}
+        {/* Información del workspace con estilos adaptativos */}
         <div className="flex items-center gap-3 px-4">
           {/* Indicador de paquetes */}
           <button
             onClick={() => setShowPackageManager(true)}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
+            className="flex items-center gap-1 text-xs transition-colors"
+            style={{ color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--toolbar-text)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)';
+            }}
             title="Gestor de paquetes"
           >
-            <Package size={14} className="text-blue-400" />
+            <Package size={14} style={{ color: 'var(--toolbar-accent)' }} />
             <span>{totalInstalled} paquetes</span>
             {updatesAvailable > 0 && (
               <span className="bg-orange-500 text-white text-xs px-1.5 py-0.5 rounded-full">
@@ -376,7 +445,19 @@ function FileManager() {
           {/* Botón de configuración */}
           <button
             onClick={() => setShowSettingsDialog(true)}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded transition-colors"
+            className="p-1.5 hover:bg-opacity-50 rounded transition-colors"
+            style={{ 
+              color: 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)',
+              backgroundColor: 'transparent'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--toolbar-hover)';
+              e.currentTarget.style.color = 'var(--toolbar-text)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'color-mix(in srgb, var(--toolbar-text) 70%, transparent)';
+            }}
             title="Configuración"
           >
             <Settings size={14} />

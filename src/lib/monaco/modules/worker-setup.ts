@@ -122,8 +122,19 @@ export async function restartTypeScriptWorkers(monaco: any): Promise<boolean> {
 export function setupWorkerRecovery(monaco: any): void {
   let recoveryAttempts = 0;
   const maxRecoveryAttempts = 3;
+  let lastErrorTime = 0;
+  const errorCooldownMs = 5000; // 5 segundos de cooldown entre intentos
 
   const handleWorkerError = async (error: any) => {
+    const now = Date.now();
+    
+    // Implementar cooldown para evitar spam de recuperaciones
+    if (now - lastErrorTime < errorCooldownMs) {
+      console.debug('🔇 Error de worker en cooldown, ignorando...');
+      return;
+    }
+    
+    lastErrorTime = now;
     console.warn(`⚠️ Error en worker detectado:`, error);
     
     if (recoveryAttempts < maxRecoveryAttempts) {
@@ -135,13 +146,18 @@ export function setupWorkerRecovery(monaco: any): void {
       if (recovered) {
         console.log('✅ Workers recuperados exitosamente');
         recoveryAttempts = 0; // Resetear contador
+        lastErrorTime = 0; // Resetear cooldown
       } else {
         console.error(`❌ Fallo en recuperación ${recoveryAttempts}`);
         
         if (recoveryAttempts >= maxRecoveryAttempts) {
-          console.error('❌ Máximo de intentos de recuperación alcanzado');
+          console.error('❌ Máximo de intentos de recuperación alcanzado en worker-setup. Deshabilitando interceptor de errores.');
+          // Deshabilitar el interceptor para evitar bucles infinitos
+          console.error = originalConsoleError;
         }
       }
+    } else {
+      console.warn('⚠️ Límite de recuperación ya alcanzado, ignorando error de worker');
     }
   };
 
@@ -150,15 +166,26 @@ export function setupWorkerRecovery(monaco: any): void {
   console.error = function(...args: any[]) {
     const errorMessage = args.join(' ');
     
-    // Detectar errores específicos de workers
-    if (errorMessage.includes('TypeScript not registered') ||
-        errorMessage.includes('Worker') ||
-        errorMessage.includes('Language service')) {
+    // Detectar errores específicos de workers, pero ser más selectivo
+    if ((errorMessage.includes('TypeScript not registered') ||
+         errorMessage.includes('Worker') ||
+         errorMessage.includes('Language service')) &&
+        !errorMessage.includes('Límite') && // No interceptar nuestros propios mensajes de límite
+        !errorMessage.includes('límite') &&
+        !errorMessage.includes('alcanzado')) {
       handleWorkerError(errorMessage);
     }
     
     originalConsoleError.apply(console, args);
   };
 
-  console.log('🛡️ Sistema de recuperación de workers configurado');
+  console.log('🛡️ Sistema de recuperación de workers configurado con límites mejorados');
+  
+  // Auto-deshabilitar el interceptor después de 60 segundos como medida de seguridad
+  setTimeout(() => {
+    if (console.error !== originalConsoleError) {
+      console.log('🕒 Deshabilitando interceptor de errores de worker por timeout de seguridad');
+      console.error = originalConsoleError;
+    }
+  }, 60000);
 } 

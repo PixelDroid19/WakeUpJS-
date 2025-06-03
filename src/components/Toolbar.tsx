@@ -17,6 +17,8 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { useSnippets } from "../context/SnippetsContext";
 import { useConfig } from "../context/ConfigContext";
 import { insertSnippet } from "../lib/monaco/modules/snippets-setup";
+import { SmartTooltip } from "./SmartTooltip";
+import { SmartDropdown } from "./SmartDropdown";
 import {
   Play,
   Pause,
@@ -32,7 +34,7 @@ import {
   SaveAll,
   PlayCircle,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import React from "react";
 
 interface ToolbarProps {
@@ -49,6 +51,15 @@ interface ToolbarProps {
     lastExecution: number;
     isThrottled: boolean;
   };
+  executionStatus?: {
+    type: 'idle' | 'pending' | 'debouncing' | 'executing' | 'error' | 'cleared' | 'paste-priority';
+    message?: string;
+    timeRemaining?: number;
+    lastChangeSize?: number;
+    estimatedDelay?: number;
+    isTypingActive?: boolean;
+    operationType?: 'paste' | 'typing' | 'manual';
+  };
 }
 
 function Toolbar({
@@ -61,9 +72,10 @@ function Toolbar({
   onShowSnippetManager,
   editorRef,
   executionStats,
+  executionStatus,
 }: ToolbarProps) {
   const { direction, changeDirection } = useSplitLayout();
-  const { config, toggleSettings } = useToolbar();
+  const { config, currentTheme, availableThemes, setUnifiedTheme } = useToolbar();
   const { state, actions, utils } = useWorkspace();
   const { state: snippetsState, actions: snippetsActions } = useSnippets();
   const {
@@ -131,26 +143,12 @@ function Toolbar({
 
   // Clases base según el tema
   const getThemeClasses = () => {
-    if (config.theme === "custom" && config.customColors) {
-      return {
-        backgroundColor: config.customColors.background,
-        color: config.customColors.text,
-        borderColor: config.customColors.accent,
-      };
-    }
-
-    switch (config.theme) {
-      case "light":
-        return "bg-white text-gray-800 border-gray-200";
-      case "blue":
-        return "bg-blue-600 text-white border-blue-700";
-      case "purple":
-        return "bg-purple-600 text-white border-purple-700";
-      case "green":
-        return "bg-green-600 text-white border-green-700";
-      default:
-        return "bg-gray-800 text-white border-gray-700";
-    }
+    // Usar variables CSS del tema unificado
+    return {
+      backgroundColor: 'var(--toolbar-bg, #1f2937)',
+      color: 'var(--toolbar-text, #ffffff)',
+      borderColor: 'var(--toolbar-accent, #374151)',
+    };
   };
 
   // Clases de tamaño
@@ -232,91 +230,84 @@ function Toolbar({
     }
   };
 
-  // Componente de tooltip inteligente
-  const SmartTooltip = ({
-    children,
-    text,
-  }: {
-    children: React.ReactNode;
-    text: string;
-  }) => {
-    const [tooltipPosition, setTooltipPosition] = useState<
-      "top" | "bottom" | "left" | "right"
-    >("top");
-    const triggerRef = useRef<HTMLDivElement>(null);
+  // Función para renderizar notificaciones integradas
+  const renderExecutionNotification = () => {
+    if (!executionStatus || !executionStatus.type || 
+        (executionStatus.type === 'idle' && executionStatus.message && 
+         (executionStatus.message.includes('completada') || executionStatus.message.includes('Completado')))) {
+      return null;
+    }
 
-    useEffect(() => {
-      const updateTooltipPosition = () => {
-        if (!triggerRef.current) return;
-
-        const rect = triggerRef.current.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-
-        const spaceTop = rect.top;
-        const spaceBottom = viewportHeight - rect.bottom;
-        const spaceLeft = rect.left;
-        const spaceRight = viewportWidth - rect.right;
-
-        if (spaceTop > 60 && spaceTop > spaceBottom) {
-          setTooltipPosition("top");
-        } else if (spaceBottom > 60) {
-          setTooltipPosition("bottom");
-        } else if (spaceLeft > 100) {
-          setTooltipPosition("left");
-        } else if (spaceRight > 100) {
-          setTooltipPosition("right");
-        } else {
-          setTooltipPosition("top");
-        }
-      };
-
-      updateTooltipPosition();
-      window.addEventListener("resize", updateTooltipPosition);
-      window.addEventListener("scroll", updateTooltipPosition);
-
-      return () => {
-        window.removeEventListener("resize", updateTooltipPosition);
-        window.removeEventListener("scroll", updateTooltipPosition);
-      };
-    }, []);
-
-    const getTooltipClasses = () => {
-      const baseClasses =
-        "absolute z-50 px-2 py-1 bg-gray-900 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap";
-
-      switch (tooltipPosition) {
-        case "bottom":
-          return `${baseClasses} top-full left-1/2 transform -translate-x-1/2 mt-2`;
-        case "left":
-          return `${baseClasses} right-full top-1/2 transform -translate-y-1/2 mr-2`;
-        case "right":
-          return `${baseClasses} left-full top-1/2 transform -translate-y-1/2 ml-2`;
+    const getStatusConfig = () => {
+      switch (executionStatus.type) {
+        case 'pending':
+          return {
+            icon: executionStatus.isTypingActive ? '⌨️' : '⏳',
+            color: executionStatus.isTypingActive 
+              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+              : 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+            iconColor: executionStatus.isTypingActive 
+              ? 'text-purple-400'
+              : 'text-blue-400',
+          };
+        case 'debouncing':
+          return {
+            icon: executionStatus.isTypingActive ? '⌨️' : '⏱️',
+            color: executionStatus.isTypingActive
+              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+              : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+            iconColor: executionStatus.isTypingActive
+              ? 'text-purple-400'
+              : 'text-yellow-400',
+          };
+        case 'executing':
+          return {
+            icon: '⚡',
+            color: 'bg-green-500/20 text-green-300 border-green-500/30',
+            iconColor: 'text-green-400',
+          };
+        case 'error':
+          return {
+            icon: '❌',
+            color: 'bg-red-500/20 text-red-300 border-red-500/30',
+            iconColor: 'text-red-400',
+          };
+        case 'cleared':
+          return {
+            icon: '🧹',
+            color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+            iconColor: 'text-cyan-400',
+          };
+        case 'paste-priority':
+          return {
+            icon: '📋',
+            color: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+            iconColor: 'text-orange-400',
+          };
         default:
-          return `${baseClasses} bottom-full left-1/2 transform -translate-x-1/2 mb-2`;
+          return {
+            icon: '✅',
+            color: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
+            iconColor: 'text-gray-400',
+          };
       }
     };
 
-    const getArrowClasses = () => {
-      switch (tooltipPosition) {
-        case "bottom":
-          return "absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-900";
-        case "left":
-          return "absolute left-full top-1/2 transform -translate-y-1/2 w-0 h-0 border-t-4 border-b-4 border-l-4 border-transparent border-l-gray-900";
-        case "right":
-          return "absolute right-full top-1/2 transform -translate-y-1/2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-gray-900";
-        default:
-          return "absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900";
-      }
-    };
+    const statusConfig = getStatusConfig();
 
     return (
-      <div ref={triggerRef} className="relative group">
-        {children}
-        <div className={getTooltipClasses()}>
-          {text}
-          <div className={getArrowClasses()}></div>
-        </div>
+      <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${statusConfig.color} transition-all duration-200`}>
+        <span className={`text-sm ${statusConfig.iconColor}`}>
+          {statusConfig.icon}
+        </span>
+        <span className="text-xs font-medium truncate max-w-[200px]">
+          {executionStatus.message || 'Estado desconocido'}
+        </span>
+        {executionStatus.lastChangeSize !== undefined && (
+          <span className="text-xs opacity-70">
+            {executionStatus.lastChangeSize} chars
+          </span>
+        )}
       </div>
     );
   };
@@ -325,19 +316,101 @@ function Toolbar({
   const themeClasses = getThemeClasses();
   const sizeClasses = getSizeClasses();
 
+  // Componente de selector de temas mejorado con SmartDropdown
+  const ThemeSelector = () => {
+    const dropdownContent = (
+      <div className="w-64">
+        <div className="p-3 border-b border-gray-600">
+          <h3 className="text-sm font-medium text-gray-200 mb-1">
+            🎨 Seleccionar Tema
+          </h3>
+          <p className="text-xs text-gray-400">
+            Temas unificados para editor y toolbar
+          </p>
+        </div>
+        
+        <div className="py-2 max-h-64 overflow-y-auto custom-scrollbar">
+          {availableThemes.map((theme) => (
+            <button
+              key={theme.id}
+              onClick={() => {
+                setUnifiedTheme(theme.id);
+              }}
+              className={`w-full text-left px-4 py-3 hover:bg-gray-700 transition-colors ${
+                theme.id === currentTheme.id 
+                  ? 'bg-gray-700 border-l-2 border-blue-400' 
+                  : ''
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-gray-200">
+                  {theme.name}
+                </span>
+                {theme.id === currentTheme.id && (
+                  <span className="text-blue-400 text-xs">✓</span>
+                )}
+              </div>
+              <div className="text-xs text-gray-400 mb-2">
+                {theme.description}
+              </div>
+              <div className="flex items-center gap-2">
+                <div 
+                  className={`w-4 h-4 rounded ${theme.preview}`}
+                  style={{ backgroundColor: theme.toolbar.background }}
+                />
+                <span className="text-xs text-gray-500">
+                  Editor: {theme.editor.displayName}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+        
+        <div className="border-t border-gray-600 p-3">
+          <div className="text-xs text-gray-400">
+            Los temas se sincronizan automáticamente entre el editor y la interfaz
+          </div>
+        </div>
+      </div>
+    );
+
+    return (
+      <SmartTooltip content={`Tema actual: ${currentTheme.name}`}>
+        <SmartDropdown
+          content={dropdownContent}
+          position="bottom"
+          closeOnClickOutside={true}
+          closeOnEscape={true}
+        >
+          <button
+            className={getButtonClasses("secondary")}
+            style={{
+              backgroundColor: 'var(--toolbar-hover, #374151)',
+              color: 'var(--toolbar-text, #ffffff)',
+            }}
+          >
+            <span className="text-sm">🎨</span>
+            {config.size !== "sm" && (
+              <span className="ml-2 text-xs">{currentTheme.name}</span>
+            )}
+          </button>
+        </SmartDropdown>
+      </SmartTooltip>
+    );
+  };
+
   // Renderizado condicional según el modo
   if (config.mode === "minimal") {
     return (
       <>
         <div
-          className={`${
-            typeof themeClasses === "string" ? themeClasses : ""
-          } ${sizeClasses} border-b flex items-center justify-center`}
+          className={`${sizeClasses} border-b flex items-center justify-center toolbar-themed`}
+          style={typeof themeClasses === "object" ? themeClasses : {}}
         >
           <div className="flex items-center gap-3">
             {/* Solo iconos esenciales en modo minimal */}
             {canCancel && onCancelExecution && (
-              <SmartTooltip text="Detener ejecución">
+              <SmartTooltip content="Detener ejecución">
                 <button
                   onClick={onCancelExecution}
                   className={getButtonClasses("danger")}
@@ -348,7 +421,7 @@ function Toolbar({
             )}
 
             <SmartTooltip
-              text={`Layout ${
+              content={`Layout ${
                 direction === "horizontal" ? "vertical" : "horizontal"
               }`}
             >
@@ -364,7 +437,7 @@ function Toolbar({
             </SmartTooltip>
 
             {onClearResults && (
-              <SmartTooltip text="Limpiar resultados">
+              <SmartTooltip content="Limpiar resultados">
                 <button
                   onClick={onClearResults}
                   className={getButtonClasses("secondary")}
@@ -375,7 +448,7 @@ function Toolbar({
             )}
 
             {onShowSnippetManager && (
-              <SmartTooltip text="Gestionar snippets">
+              <SmartTooltip content="Gestionar snippets">
                 <button
                   onClick={onShowSnippetManager}
                   className={getButtonClasses("primary")}
@@ -386,7 +459,7 @@ function Toolbar({
             )}
 
             {/* Botón para snippets rápidos */}
-            <SmartTooltip text="Insertar snippet (Ctrl+Shift+Space)">
+            <SmartTooltip content="Insertar snippet (Ctrl+Shift+Space)">
               <button
                 onClick={handleOpenQuickSnippets}
                 className={getButtonClasses("primary")}
@@ -395,14 +468,7 @@ function Toolbar({
               </button>
             </SmartTooltip>
 
-            <SmartTooltip text="Configuración">
-              <button
-                onClick={toggleSettings}
-                className={getButtonClasses("secondary")}
-              >
-                <Settings size={iconSize} />
-              </button>
-            </SmartTooltip>
+            <ThemeSelector />
           </div>
         </div>
 
@@ -424,14 +490,13 @@ function Toolbar({
     return (
       <>
         <div
-          className={`${getPositionClasses()} ${
-            typeof themeClasses === "string" ? themeClasses : ""
-          } ${sizeClasses} flex items-center gap-2`}
+          className={`${getPositionClasses()} ${sizeClasses} flex items-center gap-2 toolbar-themed`}
+          style={typeof themeClasses === "object" ? themeClasses : {}}
         >
           {/* Iconos en círculos compactos */}
           <div className="flex items-center gap-1">
             {canCancel && onCancelExecution && (
-              <SmartTooltip text="Detener">
+              <SmartTooltip content="Detener">
                 <button
                   onClick={onCancelExecution}
                   className="w-8 h-8 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 flex items-center justify-center transition-all"
@@ -441,7 +506,7 @@ function Toolbar({
               </SmartTooltip>
             )}
 
-            <SmartTooltip text="Layout">
+            <SmartTooltip content="Layout">
               <button
                 onClick={changeDirection}
                 className="w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 flex items-center justify-center transition-all"
@@ -454,7 +519,7 @@ function Toolbar({
             </SmartTooltip>
 
             {resultCount > 0 && (
-              <SmartTooltip text={`${resultCount} resultados`}>
+              <SmartTooltip content={`${resultCount} resultados`}>
                 <div className="w-8 h-8 rounded-full bg-gray-500/20 border border-gray-500/30 flex items-center justify-center">
                   <span className="text-xs font-mono">
                     {resultCount > 99 ? "99+" : resultCount}
@@ -465,7 +530,7 @@ function Toolbar({
 
             {/* Indicador de undefined ocultos en modo compact */}
             {config.hideUndefined && (
-              <SmartTooltip text="Valores undefined ocultos">
+              <SmartTooltip content="Valores undefined ocultos">
                 <div className="w-8 h-8 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
                   <EyeOff size={12} className="text-orange-300" />
                 </div>
@@ -473,7 +538,7 @@ function Toolbar({
             )}
 
             {onShowSnippetManager && (
-              <SmartTooltip text="Snippets">
+              <SmartTooltip content="Snippets">
                 <button
                   onClick={onShowSnippetManager}
                   className="w-8 h-8 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 flex items-center justify-center transition-all"
@@ -484,7 +549,7 @@ function Toolbar({
             )}
 
             {/* Botón para snippets rápidos en modo compact */}
-            <SmartTooltip text="Insertar snippet (Ctrl+Shift+Space)">
+            <SmartTooltip content="Insertar snippet (Ctrl+Shift+Space)">
               <button
                 onClick={handleOpenQuickSnippets}
                 className="w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 flex items-center justify-center transition-all"
@@ -493,14 +558,7 @@ function Toolbar({
               </button>
             </SmartTooltip>
 
-            <SmartTooltip text="Configuración">
-              <button
-                onClick={toggleSettings}
-                className="w-8 h-8 rounded-full bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 border border-gray-500/30 flex items-center justify-center transition-all"
-              >
-                <Settings size={12} />
-              </button>
-            </SmartTooltip>
+            <ThemeSelector />
           </div>
         </div>
 
@@ -522,13 +580,12 @@ function Toolbar({
     return (
       <>
         <div
-          className={`${getPositionClasses()} ${
-            typeof themeClasses === "string" ? themeClasses : ""
-          } ${sizeClasses} flex ${
+          className={`${getPositionClasses()} ${sizeClasses} flex ${
             config.position === "left" || config.position === "right"
               ? "flex-col"
               : "flex-row"
-          } items-center gap-3`}
+          } items-center gap-3 toolbar-themed`}
+          style={typeof themeClasses === "object" ? themeClasses : {}}
         >
           {/* Estado de ejecución */}
           <div className="flex items-center gap-2">
@@ -538,7 +595,7 @@ function Toolbar({
               }`}
             ></div>
             {config.showResultCount && resultCount > 0 && (
-              <SmartTooltip text={`${resultCount} resultados`}>
+              <SmartTooltip content={`${resultCount} resultados`}>
                 <div className="bg-white/10 rounded-full px-2 py-1 text-xs font-mono">
                   {resultCount}
                 </div>
@@ -547,7 +604,7 @@ function Toolbar({
 
             {/* Indicador de undefined ocultos */}
             {config.hideUndefined && (
-              <SmartTooltip text="Valores undefined ocultos">
+              <SmartTooltip content="Valores undefined ocultos">
                 <div className="bg-orange-500/20 border border-orange-500/30 rounded-full p-1">
                   <EyeOff size={10} className="text-orange-300" />
                 </div>
@@ -573,7 +630,7 @@ function Toolbar({
             } items-center gap-2`}
           >
             {canCancel && onCancelExecution && (
-              <SmartTooltip text="Detener ejecución">
+              <SmartTooltip content="Detener ejecución">
                 <button
                   onClick={onCancelExecution}
                   className={getButtonClasses("danger")}
@@ -584,7 +641,7 @@ function Toolbar({
             )}
 
             {onClearResults && (
-              <SmartTooltip text="Limpiar resultados">
+              <SmartTooltip content="Limpiar resultados">
                 <button
                   onClick={onClearResults}
                   className={getButtonClasses("secondary")}
@@ -595,7 +652,7 @@ function Toolbar({
             )}
 
             {onShowSnippetManager && (
-              <SmartTooltip text="Gestionar snippets">
+              <SmartTooltip content="Gestionar snippets">
                 <button
                   onClick={onShowSnippetManager}
                   className={getButtonClasses("primary")}
@@ -606,7 +663,7 @@ function Toolbar({
             )}
 
             {/* Botón para snippets rápidos */}
-            <SmartTooltip text="Insertar snippet (Ctrl+Shift+Space)">
+            <SmartTooltip content="Insertar snippet (Ctrl+Shift+Space)">
               <button
                 onClick={handleOpenQuickSnippets}
                 className={getButtonClasses("secondary")}
@@ -615,14 +672,7 @@ function Toolbar({
               </button>
             </SmartTooltip>
 
-            <SmartTooltip text="Configuración">
-              <button
-                onClick={toggleSettings}
-                className={getButtonClasses("secondary")}
-              >
-                <Settings size={iconSize} />
-              </button>
-            </SmartTooltip>
+            <ThemeSelector />
           </div>
         </div>
 
@@ -644,9 +694,8 @@ function Toolbar({
   return (
     <>
       <div
-        className={`${
-          typeof themeClasses === "string" ? themeClasses : ""
-        } ${sizeClasses} border-b flex items-center justify-between`}
+        className={`${sizeClasses} border-b flex items-center justify-between toolbar-themed`}
+        style={typeof themeClasses === "object" ? themeClasses : {}}
       >
         <div className="flex items-center gap-4">
           {config.showTitle && (
@@ -669,7 +718,7 @@ function Toolbar({
           {/* Información del archivo activo */}
           {activeFile && (
             <SmartTooltip
-              text={`Archivo activo: ${activeFile.name} (${activeFile.language})`}
+              content={`Archivo activo: ${activeFile.name} (${activeFile.language})`}
             >
               <div className="flex items-center gap-2 bg-white/10 rounded-full px-3 py-1 backdrop-blur-sm">
                 <FileText size={iconSize - 2} />
@@ -682,7 +731,7 @@ function Toolbar({
           )}
 
           {config.showResultCount && (
-            <SmartTooltip text={`Total de resultados: ${resultCount}`}>
+            <SmartTooltip content={`Total de resultados: ${resultCount}`}>
               <div className="flex items-center gap-2 bg-white/10 rounded-full px-3 py-1 backdrop-blur-sm">
                 <Hash size={iconSize - 2} />
                 <span className="font-mono font-bold">{resultCount}</span>
@@ -691,7 +740,7 @@ function Toolbar({
           )}
 
           {errorCount > 0 && (
-            <SmartTooltip text={`Errores encontrados: ${errorCount}`}>
+            <SmartTooltip content={`Errores encontrados: ${errorCount}`}>
               <div className="flex items-center gap-2 bg-red-500/20 rounded-full px-3 py-1 border border-red-500/30 backdrop-blur-sm">
                 <X size={iconSize - 2} className="text-red-300" />
                 <span className="font-mono font-bold text-red-300">
@@ -703,7 +752,7 @@ function Toolbar({
 
           {/* Información del workspace */}
           <SmartTooltip
-            text={`Workspace: ${state.files.length} archivos, ${unsavedFiles.length} sin guardar`}
+            content={`Workspace: ${state.files.length} archivos, ${unsavedFiles.length} sin guardar`}
           >
             <div className="flex items-center gap-2 bg-blue-500/20 rounded-full px-3 py-1 border border-blue-500/30 backdrop-blur-sm">
               <span className="text-blue-300 text-sm">📁</span>
@@ -723,7 +772,7 @@ function Toolbar({
 
           {/* Indicador de throttling */}
           {executionStats?.isThrottled && (
-            <SmartTooltip text="Ejecución throttled - esperando...">
+            <SmartTooltip content="Ejecución throttled - esperando...">
               <div className="flex items-center gap-2 bg-orange-500/20 rounded-full px-3 py-1 border border-orange-500/30 backdrop-blur-sm">
                 <span className="text-orange-300 text-sm">⏳</span>
               </div>
@@ -732,7 +781,7 @@ function Toolbar({
 
           {/* Indicador de undefined ocultos en modo normal */}
           {config.hideUndefined && (
-            <SmartTooltip text="Valores undefined ocultos">
+            <SmartTooltip content="Valores undefined ocultos">
               <div className="flex items-center gap-2 bg-orange-500/20 rounded-full px-3 py-1 border border-orange-500/30 backdrop-blur-sm">
                 <EyeOff size={iconSize - 2} className="text-orange-300" />
                 <span className="font-mono text-xs text-orange-300">
@@ -741,13 +790,16 @@ function Toolbar({
               </div>
             </SmartTooltip>
           )}
+
+          {/* Notificaciones de ejecución integradas */}
+          {renderExecutionNotification()}
         </div>
 
         <div className="flex items-center gap-2">
           {/* Botón de guardar todo si hay cambios sin guardar */}
           {hasUnsavedChanges && (
             <SmartTooltip
-              text={`Guardar todos los archivos (${unsavedFiles.length} sin guardar)`}
+              content={`Guardar todos los archivos (${unsavedFiles.length} sin guardar)`}
             >
               <button
                 onClick={() => actions.saveAllFiles()}
@@ -763,7 +815,7 @@ function Toolbar({
 
           {/* Toggle Auto Guardado */}
           <SmartTooltip
-            text={`Auto Guardado: ${
+            content={`Auto Guardado: ${
               configState.autoSave.enabled ? "Activado" : "Desactivado"
             }`}
           >
@@ -791,7 +843,7 @@ function Toolbar({
 
           {/* Toggle Auto Ejecución */}
           <SmartTooltip
-            text={`Auto Ejecución: ${
+            content={`Auto Ejecución: ${
               configState.autoExecution.enabled ? "Activado" : "Desactivado"
             }`}
           >
@@ -819,7 +871,7 @@ function Toolbar({
 
           {/* Botón de cancelación */}
           {canCancel && onCancelExecution && (
-            <SmartTooltip text="Cancelar ejecución">
+            <SmartTooltip content="Cancelar ejecución">
               <button
                 onClick={onCancelExecution}
                 className={getButtonClasses("danger")}
@@ -830,8 +882,10 @@ function Toolbar({
             </SmartTooltip>
           )}
 
+          <ThemeSelector />
+
           <SmartTooltip
-            text={`Cambiar a layout ${
+            content={`Cambiar a layout ${
               direction === "horizontal" ? "vertical" : "horizontal"
             }`}
           >
@@ -847,7 +901,7 @@ function Toolbar({
           </SmartTooltip>
 
           {onClearResults && (
-            <SmartTooltip text="Limpiar todos los resultados">
+            <SmartTooltip content="Limpiar todos los resultados">
               <button
                 onClick={onClearResults}
                 className={getButtonClasses("danger")}
@@ -858,7 +912,7 @@ function Toolbar({
           )}
 
           {onShowSnippetManager && (
-            <SmartTooltip text="Gestionar snippets">
+            <SmartTooltip content="Gestionar snippets">
               <button
                 onClick={onShowSnippetManager}
                 className={getButtonClasses("primary")}
@@ -869,21 +923,12 @@ function Toolbar({
           )}
 
           {/* Botón para snippets rápidos */}
-          <SmartTooltip text="Insertar snippet (Ctrl+Shift+Space)">
+          <SmartTooltip content="Insertar snippet (Ctrl+Shift+Space)">
             <button
               onClick={handleOpenQuickSnippets}
               className={getButtonClasses("secondary")}
             >
               <Code2 size={iconSize} />
-            </button>
-          </SmartTooltip>
-
-          <SmartTooltip text="Abrir configuración">
-            <button
-              onClick={toggleSettings}
-              className={getButtonClasses("secondary")}
-            >
-              <Settings size={iconSize} />
             </button>
           </SmartTooltip>
         </div>

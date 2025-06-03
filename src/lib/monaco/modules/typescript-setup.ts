@@ -12,8 +12,30 @@
  * - Agregar definiciones de tipos comunes
  */
 
+// 🛡️ Contadores globales para evitar bucles infinitos
+let globalReconfigurationAttempts = 0;
+let globalWorkerRecoveryAttempts = 0;
+let isTypeScriptConfigured = false;
+const MAX_RECONFIGURATION_ATTEMPTS = 3;
+const MAX_WORKER_RECOVERY_ATTEMPTS = 5;
+
+// Reset de contadores cada 30 segundos para permitir reintentos después de un tiempo
+setInterval(() => {
+  if (globalReconfigurationAttempts > 0 || globalWorkerRecoveryAttempts > 0) {
+    console.log('🔄 Reseteando contadores de intentos de TypeScript');
+    globalReconfigurationAttempts = 0;
+    globalWorkerRecoveryAttempts = 0;
+  }
+}, 30000);
+
 export function setupTypeScriptConfiguration(monaco: any): void {
   console.log('🔧 Configurando TypeScript en Monaco...');
+  
+  // Prevenir reconfiguración infinita
+  if (isTypeScriptConfigured && globalReconfigurationAttempts >= MAX_RECONFIGURATION_ATTEMPTS) {
+    console.warn('⚠️ Se alcanzó el límite de reconfiguraciones de TypeScript. Continuando sin reconfigurar.');
+    return;
+  }
   
   try {
     // Obtener defaults de TypeScript y JavaScript
@@ -130,8 +152,12 @@ export function setupTypeScriptConfiguration(monaco: any): void {
     // Agregar definiciones de tipos comunes
     addCommonTypeDefinitions(tsDefaults, jsDefaults);
     
-    // Configurar el worker de TypeScript
-    configureTypeScriptWorker(monaco);
+    // Configurar el worker de TypeScript solo si no se ha intentado demasiadas veces
+    if (globalWorkerRecoveryAttempts < MAX_WORKER_RECOVERY_ATTEMPTS) {
+      configureTypeScriptWorker(monaco);
+    } else {
+      console.warn('⚠️ Omitiendo configuración de worker de TypeScript debido a demasiados intentos fallidos');
+    }
     
     // Habilitar eager model sync para ambos
     tsDefaults.setEagerModelSync(true);
@@ -147,6 +173,7 @@ export function setupTypeScriptConfiguration(monaco: any): void {
       workerIdleTimeLimit: 10000
     });
 
+    isTypeScriptConfigured = true;
     console.log('✅ Configuración de TypeScript completada exitosamente');
     
     // Validar configuración
@@ -631,14 +658,19 @@ declare function fetch(
 }
 
 export function configureTypeScriptWorker(monaco: any): Promise<boolean> {
-  if (!monaco?.languages?.typescript) {
-    console.error('✔ Error configurando TypeScript worker: Servicio TypeScript no disponible');
+  console.log('🔧 Configurando worker de TypeScript...');
+  
+  // Verificar si ya hemos superado el límite de intentos
+  if (globalWorkerRecoveryAttempts >= MAX_WORKER_RECOVERY_ATTEMPTS) {
+    console.warn('⚠️ Límite de intentos de worker alcanzado, omitiendo configuración');
     return Promise.resolve(false);
   }
   
-  // Forzar la inicialización de los workers de TypeScript/JavaScript
   try {
-    // Asegurarse de que las opciones estén configuradas antes de obtener el worker
+    if (!monaco?.languages?.typescript) {
+      throw new Error('Servicio TypeScript no disponible');
+    }
+
     const tsDefaults = monaco.languages.typescript.typescriptDefaults;
     const jsDefaults = monaco.languages.typescript.javascriptDefaults;
     
@@ -663,14 +695,26 @@ export function configureTypeScriptWorker(monaco: any): Promise<boolean> {
             return resolve(true);
           })
           .catch((error: any) => {
-            console.error("✔ Error configurando TypeScript worker después de reinicialización:", error);
-            return attemptWorkerRecovery(monaco).then(resolve);
+            console.error("❌ Error configurando TypeScript worker después de reinicialización:", error);
+            // Solo intentar recuperación si no hemos alcanzado el límite
+            if (globalWorkerRecoveryAttempts < MAX_WORKER_RECOVERY_ATTEMPTS) {
+              return attemptWorkerRecovery(monaco).then(resolve);
+            } else {
+              console.warn('⚠️ Límite de recuperación alcanzado, continuando sin worker');
+              return resolve(false);
+            }
           });
       }, 100);
     });
   } catch (error) {
-    console.error("✔ Error en la configuración del worker de TypeScript:", error);
-    return attemptWorkerRecovery(monaco);
+    console.error("❌ Error en la configuración del worker de TypeScript:", error);
+    // Solo intentar recuperación si no hemos alcanzado el límite
+    if (globalWorkerRecoveryAttempts < MAX_WORKER_RECOVERY_ATTEMPTS) {
+      return attemptWorkerRecovery(monaco);
+    } else {
+      console.warn('⚠️ Límite de recuperación alcanzado, continuando sin worker');
+      return Promise.resolve(false);
+    }
   }
 }
 
@@ -678,8 +722,17 @@ export function configureTypeScriptWorker(monaco: any): Promise<boolean> {
  * Intenta recuperar el worker de TypeScript
  */
 async function attemptWorkerRecovery(monaco: any): Promise<boolean> {
+  // Incrementar contador global de intentos
+  globalWorkerRecoveryAttempts++;
+  
+  // Verificar límite de intentos
+  if (globalWorkerRecoveryAttempts > MAX_WORKER_RECOVERY_ATTEMPTS) {
+    console.error(`❌ Se alcanzó el límite máximo de intentos de recuperación del worker (${MAX_WORKER_RECOVERY_ATTEMPTS}). Continuando sin TypeScript worker.`);
+    return false;
+  }
+  
   try {
-    console.log('🔧 Iniciando recuperación del worker de TypeScript...');
+    console.log(`🔧 Iniciando recuperación del worker de TypeScript... (Intento ${globalWorkerRecoveryAttempts}/${MAX_WORKER_RECOVERY_ATTEMPTS})`);
     
     if (!monaco?.languages?.typescript) {
       throw new Error('Servicio TypeScript no disponible para recuperación');
@@ -740,10 +793,15 @@ async function attemptWorkerRecovery(monaco: any): Promise<boolean> {
     return true;
 
   } catch (recoveryError) {
-    console.error('❌ Error durante recuperación del worker:', recoveryError);
+    console.error(`❌ Error durante recuperación del worker (intento ${globalWorkerRecoveryAttempts}):`, recoveryError);
     
-    // Último intento: reconfiguración completa
-    return attemptFullReconfiguration(monaco);
+    // Solo intentar reconfiguración completa si no hemos alcanzado el límite
+    if (globalReconfigurationAttempts < MAX_RECONFIGURATION_ATTEMPTS) {
+      return attemptFullReconfiguration(monaco);
+    } else {
+      console.error('❌ No se puede intentar reconfiguración completa: límite alcanzado');
+      return false;
+    }
   }
 }
 
@@ -751,28 +809,77 @@ async function attemptWorkerRecovery(monaco: any): Promise<boolean> {
  * Último recurso: reconfiguración completa de TypeScript
  */
 async function attemptFullReconfiguration(monaco: any): Promise<boolean> {
+  // Incrementar contador global de reconfiguraciones
+  globalReconfigurationAttempts++;
+  
+  // Verificar límite de reconfiguraciones
+  if (globalReconfigurationAttempts > MAX_RECONFIGURATION_ATTEMPTS) {
+    console.error(`❌ Se alcanzó el límite máximo de reconfiguraciones completas (${MAX_RECONFIGURATION_ATTEMPTS}). Deteniendo intentos.`);
+    return false;
+  }
+  
   try {
-    console.log('🔄 Último intento: reconfiguración completa de TypeScript...');
+    console.log(`🔄 Último intento: reconfiguración completa de TypeScript... (Intento ${globalReconfigurationAttempts}/${MAX_RECONFIGURATION_ATTEMPTS})`);
     
-    // Reconfigurar completamente TypeScript
-    setupTypeScriptConfiguration(monaco);
+    // NO llamar a setupTypeScriptConfiguration para evitar recursión infinita
+    // En su lugar, hacer una reconfiguración básica directamente aquí
     
-    // Esperar más tiempo para la reconfiguración
+    if (!monaco?.languages?.typescript) {
+      throw new Error('Servicio TypeScript no disponible');
+    }
+
+    const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+    const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+
+    if (!tsDefaults || !jsDefaults) {
+      throw new Error('Defaults de TypeScript no disponibles');
+    }
+
+    // Reconfiguración básica pero completa
+    tsDefaults.setEagerModelSync(false);
+    jsDefaults.setEagerModelSync(false);
+    
+    // Esperar para que se desconecten
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // Validar nuevamente
+    // Reconfigurar opciones mínimas necesarias
+    tsDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      allowJs: true,
+      allowNonTsExtensions: true,
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      noEmit: true,
+      skipLibCheck: true
+    });
+
+    jsDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      allowJs: true,
+      allowNonTsExtensions: true,
+      noEmit: true,
+      skipLibCheck: true
+    });
+    
+    // Reactivar eager sync
+    tsDefaults.setEagerModelSync(true);
+    jsDefaults.setEagerModelSync(true);
+    
+    // Esperar más tiempo para la reconfiguración
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Validar que el worker funciona
     const worker = await monaco.languages.typescript.getTypeScriptWorker();
     
     if (worker) {
       console.log('✅ Reconfiguración completa exitosa');
       return true;
     } else {
-      console.error('❌ Reconfiguración completa falló');
+      console.warn('⚠️ Reconfiguración completa falló, pero continuando sin worker');
       return false;
     }
     
   } catch (error) {
-    console.error('❌ Error en reconfiguración completa:', error);
+    console.error(`❌ Error en reconfiguración completa (intento ${globalReconfigurationAttempts}):`, error);
     return false;
   }
 }
