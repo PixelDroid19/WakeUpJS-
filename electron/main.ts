@@ -6,11 +6,13 @@ process.env.DIST = path.join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : path.join(process.env.DIST, '../public')
 
 let win: BrowserWindow | null
+const BASE_WINDOW_TITLE = 'JSRunner'; // Define base title
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
 function createWindow () {
   win = new BrowserWindow({
+    title: BASE_WINDOW_TITLE, // Set initial title
     icon: path.join(process.env.PUBLIC, 'jsrunner.png'),
     frame: false,
     webPreferences: {
@@ -220,8 +222,37 @@ function createWindow () {
   }
 }
 
+// IPC handler for opening a directory dialog
+ipcMain.handle('dialog:openDirectory', async () => {
+  if (!win) return null; // Or throw an error if window must be present
+
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openDirectory']
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+// Listen for dirty status changes from renderer
+ipcMain.on('app:set-dirty-status', (event, hasUnsavedChanges: boolean) => {
+  if (!win) return;
+
+  if (process.platform === 'darwin') {
+    app.dock.setBadge(hasUnsavedChanges ? '●' : '');
+  } else {
+    // For Windows/Linux, modify the window title
+    const newTitle = hasUnsavedChanges ? `* ${BASE_WINDOW_TITLE}` : BASE_WINDOW_TITLE;
+    win.setTitle(newTitle);
+  }
+});
+
 app.on('window-all-closed', () => {
   win = null
+  // Deregister IPC listeners if necessary, though for app:set-dirty-status it might not be critical
+  // if win is null checked. For 'close-me' etc. they are tied to win lifecycle.
 })
 app
   .whenReady()

@@ -234,7 +234,7 @@ function AppContent() {
         </div>
 
         <div className="relative overflow-hidden">
-          <Result />
+          <Result editorRef={editorRef} />
 
           {/* Información de resultados en la parte inferior */}
           {executionStats.resultsCount > 0 && (

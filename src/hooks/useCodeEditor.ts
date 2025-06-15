@@ -120,14 +120,24 @@ export const useCodeEditor = ({ onResult, onCodeChange: _onCodeChange }: UseCode
         
       } else if (executionResult.status === 'error' && executionResult.error) {
         const errorMessage = executionResult.error.message;
+        const errorDetails = executionResult.error; // Assuming errorDetails has line, column, etc.
         setError(errorMessage);
+        setErrorInfo({
+          message: errorMessage,
+          line: errorDetails.line,
+          column: errorDetails.column,
+          phase: errorDetails.phase || 'execution', // Default phase if not specified
+          type: errorDetails.type || 'runtime', // Default type if not specified
+        });
         onResult([{ element: { content: errorMessage }, type: "error" }]);
         
         CodeLogger.log('error', 'Hook: Error en ejecución', { 
           error: errorMessage,
-          errorType: executionResult.error.type,
-          severity: executionResult.error.severity,
-          recoverable: executionResult.error.recoverable
+          errorType: errorDetails.type,
+          severity: errorDetails.severity,
+          recoverable: errorDetails.recoverable,
+          line: errorDetails.line,
+          column: errorDetails.column,
         });
         
       } else if (executionResult.status === 'timeout') {
@@ -154,12 +164,32 @@ export const useCodeEditor = ({ onResult, onCodeChange: _onCodeChange }: UseCode
       console.error('Error en motor de ejecución:', error);
       
       setError(errorMessage);
+      // Attempt to parse line and column from stack or message if possible, for critical errors
+      // This is a fallback and might not always be accurate
+      let line: number | undefined;
+      let column: number | undefined;
+      // Basic parsing, can be improved
+      const stackMatch = error.stack?.match(/:(\d+):(\d+)/);
+      if (stackMatch) {
+        line = parseInt(stackMatch[1], 10);
+        column = parseInt(stackMatch[2], 10);
+      }
+
+      setErrorInfo({
+        message: errorMessage,
+        line: line,
+        column: column,
+        phase: 'execution', // Generic phase for critical errors
+        type: error.name || 'critical', // Type from error name or generic
+      });
       onResult([{ element: { content: errorMessage }, type: "error" }]);
       setIsTransforming(false);
       
       CodeLogger.log('error', 'Hook: Error crítico en motor', { 
         error: errorMessage, 
-        stack: error.stack 
+        stack: error.stack,
+        line: line,
+        column: column,
       });
     } finally {
       setIsRunning(false);

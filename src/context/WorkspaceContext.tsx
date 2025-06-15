@@ -4,8 +4,10 @@ import {
   useReducer,
   useCallback,
   useEffect,
+  useCallback, // Already present, good.
 } from "react";
 import { setEnvironmentVariables } from "../lib/code/run";
+import type { ResultElement, ErrorInfo } from "./CodeContext"; // Import types
 
 // Tipos para el workspace
 interface WorkspaceFile {
@@ -22,8 +24,8 @@ interface ExecutionHistory {
   id: string;
   timestamp: number;
   code: string;
-  results: any[];
-  errors: any[];
+  results: ResultElement[];
+  errors: ErrorInfo[];
   executionTime: number;
 }
 
@@ -56,15 +58,16 @@ interface WorkspaceState {
     showMinimap: boolean;
     wordWrap: boolean;
   };
+  rootPath: string | null; // New field for the root directory path
 }
 
 type WorkspaceAction =
   | {
       type: "CREATE_FILE";
-      payload: { 
-        name: string; 
-        language?: WorkspaceFile["language"]; 
-        content?: string; 
+      payload: {
+        name: string;
+        language?: WorkspaceFile["language"];
+        content?: string;
       };
     }
   | { type: "DELETE_FILE"; payload: { id: string } }
@@ -83,7 +86,9 @@ type WorkspaceAction =
   | { type: "UPDATE_SETTINGS"; payload: Partial<WorkspaceState["settings"]> }
   | { type: "UPDATE_ENVIRONMENT_VARIABLES"; payload: EnvironmentVariables }
   | { type: "REOPEN_CLOSED_TAB" }
-  | { type: "LOAD_FROM_STORAGE" };
+  | { type: "LOAD_FROM_STORAGE" }
+  | { type: "REORDER_FILES"; payload: { draggedFileId: string; targetFileId: string } }
+  | { type: "SET_ROOT_PATH"; payload: { path: string | null } };
 
 // Templates predefinidos
 const DEFAULT_TEMPLATES: WorkspaceTemplate[] = [
@@ -275,6 +280,7 @@ console.log('Hola mundo');
     showMinimap: false,
     wordWrap: true,
   },
+  rootPath: null, // Initialize rootPath
 };
 
 function workspaceReducer(
@@ -537,6 +543,57 @@ function workspaceReducer(
       };
     }
 
+    case "REORDER_FILES": {
+      const { draggedFileId, targetFileId } = action.payload;
+      const files = [...state.files];
+      const draggedIndex = files.findIndex(f => f.id === draggedFileId);
+      const targetIndex = files.findIndex(f => f.id === targetFileId);
+
+      if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
+        return state; // Invalid IDs or same file
+      }
+
+      const [draggedFile] = files.splice(draggedIndex, 1);
+      // Adjust targetIndex if dragged item was before target item
+      const adjustedTargetIndex = draggedIndex < targetIndex ? targetIndex -1 : targetIndex;
+
+      files.splice(adjustedTargetIndex, 0, draggedFile);
+
+      // Mark workspace as having unsaved changes by making the moved file unsaved,
+      // or ideally, have a global workspace dirty flag.
+      // For now, let's just update the order. The save mechanism saves the whole state.
+      // We could mark the active file as unsaved to trigger save prompts if needed.
+      // const newFiles = files.map(f => f.id === draggedFileId ? {...f, isUnsaved: true} : f);
+
+      return {
+        ...state,
+        files: files, // files already includes the reordered item
+      };
+    }
+
+    case "SET_ROOT_PATH": {
+      const newPath = action.payload.path;
+      if (newPath) {
+        // New project folder opened, reset workspace files
+        return {
+          ...state,
+          rootPath: newPath,
+          files: [], // Reset files
+          activeFileId: null, // Reset active file
+          closedTabs: [], // Reset closed tabs
+          // Consider if history should be cleared too
+        };
+      } else {
+        // Root path cleared (e.g., project closed)
+        // We could choose to keep files or clear them. For now, just clear rootPath.
+        // If we want to revert to a "no project" state with default files, that logic would go here.
+        return {
+          ...state,
+          rootPath: null,
+        };
+      }
+    }
+
     default:
       return state;
   }
@@ -563,6 +620,8 @@ const WorkspaceContext = createContext<{
     updateSettings: (settings: Partial<WorkspaceState["settings"]>) => void;
     updateEnvironmentVariables: (envVars: EnvironmentVariables) => void;
     reopenClosedTab: () => void; // Nueva acción para reabrir pestañas
+    reorderFile: (draggedFileId: string, targetFileId: string) => void;
+    setRootPath: (path: string | null) => void;
   };
   utils: {
     getActiveFile: () => WorkspaceFile | null;
@@ -588,14 +647,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "LOAD_FROM_STORAGE" });
   }, []);
 
-  // Guardar en localStorage cuando cambie el estado
+  const hasUnsavedChanges = state.files.some((f) => f.isUnsaved);
+
+  // Guardar en localStorage cuando cambie el estado y notificar main process del estado "dirty"
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       localStorage.setItem("jsrunner-workspace", JSON.stringify(state));
     }, 1000); // Debounce de 1 segundo
 
+    // Notificar al proceso principal sobre el estado de cambios no guardados
+    if (window.electronAPI && typeof window.electronAPI.send === 'function') {
+      window.electronAPI.send('app:set-dirty-status', hasUnsavedChanges);
+    }
+
     return () => clearTimeout(timeoutId);
-  }, [state]);
+  }, [state, hasUnsavedChanges]); // Depender de 'state' para guardar, y 'hasUnsavedChanges' para IPC
 
   // Sincronizar variables de entorno al inicializar
   useEffect(() => {
@@ -684,6 +750,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     reopenClosedTab: useCallback(() => {
       dispatch({ type: "REOPEN_CLOSED_TAB" });
     }, []),
+
+    reorderFile: useCallback((draggedFileId: string, targetFileId: string) => {
+      dispatch({ type: "REORDER_FILES", payload: { draggedFileId, targetFileId } });
+    }, []),
+
+    setRootPath: useCallback((path: string | null) => {
+      dispatch({ type: "SET_ROOT_PATH", payload: { path } });
+    }, []),
   };
 
   // Utils
@@ -696,6 +770,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return state.files.filter((f) => f.isUnsaved);
     }, [state.files]),
 
+    // This specific hasUnsavedChanges in utils is memoized based on state.files.
+    // The one used in useEffect above is calculated directly in the provider scope
+    // to ensure the effect dependency is on the boolean value.
     hasUnsavedChanges: useCallback(() => {
       return state.files.some((f) => f.isUnsaved);
     }, [state.files]),

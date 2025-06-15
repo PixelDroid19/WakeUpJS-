@@ -4,8 +4,92 @@ import {
   useState,
   useEffect,
   ReactNode,
+  useCallback, // Added for memoizing actions
 } from "react";
 
+// Interfaces for NPM API Responses
+export interface NpmDistTags {
+  latest: string;
+  [tag: string]: string;
+}
+
+export interface NpmVersion {
+  name: string;
+  version: string;
+  description?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  dist?: {
+    shasum: string;
+    tarball: string;
+    integrity?: string; // integrity is often present
+  };
+  [key: string]: any; // Allow other properties
+}
+
+export interface NpmPackageInfo {
+  _id: string;
+  _rev: string;
+  name: string;
+  description?: string;
+  'dist-tags': NpmDistTags;
+  versions: Record<string, NpmVersion>;
+  time: Record<string, string>; // version timestamps and created/modified
+  maintainers?: Array<{ name: string; email: string }>;
+  homepage?: string;
+  keywords?: string[];
+  repository?: { type: string; url: string };
+  author?: { name: string; email?: string; url?: string };
+  bugs?: { url: string };
+  license?: string | { type: string; url: string };
+  readmeFilename?: string;
+  readme?: string;
+  [key: string]: any; // Allow other properties
+}
+
+export interface NpmSearchPackageInfo {
+  name: string;
+  version: string;
+  description?: string;
+  keywords?: string[];
+  date?: string; // Typically an ISO string
+  links?: {
+    npm: string;
+    homepage?: string;
+    repository?: string;
+    bugs?: string;
+  };
+  author?: { name: string; email?: string; url?: string };
+  publisher?: { username: string; email: string };
+  maintainers?: Array<{ username: string; email: string }>;
+}
+
+export interface NpmSearchObject {
+  package: NpmSearchPackageInfo;
+  score: {
+    final: number;
+    detail: {
+      quality: number;
+      popularity: number;
+      maintenance: number;
+    };
+  };
+  searchScore: number;
+  flags?: {
+    unstable?: boolean;
+    insecure?: boolean;
+    [key: string]: any;
+  };
+}
+
+export interface NpmSearchResult {
+  objects: NpmSearchObject[];
+  total: number;
+  time: string; // e.g., "Wed Nov 22 2023 15:56:07 GMT+0000 (Coordinated Universal Time)"
+}
+
+
+// Internal Package type
 export interface Package {
   name: string;
   version: string;
@@ -100,15 +184,16 @@ interface PackageManagerProviderProps {
 }
 
 // Función para obtener información de un paquete desde el registro npm
-async function fetchPackageInfo(packageName: string): Promise<any> {
+async function fetchPackageInfo(packageName: string): Promise<NpmPackageInfo> {
   try {
     const response = await fetch(`https://registry.npmjs.org/${packageName}`);
     if (!response.ok) {
       throw new Error(
-        `Error al obtener información del paquete: ${response.statusText}`
+        `Error al obtener información del paquete: ${response.statusText} (${response.status})`
       );
     }
-    return await response.json();
+    // Assuming the response is valid NpmPackageInfo
+    return (await response.json()) as NpmPackageInfo;
   } catch (error) {
     console.error(
       `Error al consultar el registro npm para ${packageName}:`,
@@ -118,7 +203,12 @@ async function fetchPackageInfo(packageName: string): Promise<any> {
   }
 }
 
-// Función para obtener la última versión de un paquete
+// Función para obtener la última versión de un paquete (simplified, only needs version string)
+interface NpmSimpleVersionInfo {
+  version: string;
+  [key: string]: any; // Allow other properties from the typical package.json like structure
+}
+
 async function fetchLatestVersion(packageName: string): Promise<string> {
   try {
     const response = await fetch(
@@ -126,10 +216,13 @@ async function fetchLatestVersion(packageName: string): Promise<string> {
     );
     if (!response.ok) {
       throw new Error(
-        `Error al obtener la última versión: ${response.statusText}`
+        `Error al obtener la última versión: ${response.statusText} (${response.status})`
       );
     }
-    const data = await response.json();
+    const data = (await response.json()) as NpmSimpleVersionInfo;
+    if (typeof data.version !== 'string') {
+      throw new Error(`Versión no encontrada o en formato incorrecto para ${packageName}`);
+    }
     return data.version;
   } catch (error) {
     console.error(
@@ -286,7 +379,7 @@ export function PackageManagerProvider({
       // Obtener información del paquete desde npm
       const packageInfo = await fetchPackageInfo(packageName);
       const latestVersion =
-        version || packageInfo["dist-tags"]?.latest || "latest";
+        version || packageInfo['dist-tags']?.latest || "latest";
       const packageDescription =
         packageInfo.description || `Paquete ${packageName}`;
 
@@ -462,13 +555,13 @@ export function PackageManagerProvider({
         )}&size=20`
       );
       if (!response.ok) {
-        throw new Error(`Error en la búsqueda: ${response.statusText}`);
+        throw new Error(`Error en la búsqueda: ${response.statusText} (${response.status})`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as NpmSearchResult;
 
       // Convertir los resultados al formato de Package
-      const searchResults: Package[] = data.objects.map((obj: any) => {
+      const searchResults: Package[] = data.objects.map((obj: NpmSearchObject) => {
         const pkgData = obj.package;
         const existingPkg = packages.find((p) => p.name === pkgData.name);
         const installedPkg = installedPackages[pkgData.name];
@@ -479,10 +572,10 @@ export function PackageManagerProvider({
           description: pkgData.description || `Paquete ${pkgData.name}`,
           isInstalled: !!installedPkg,
           isBuiltIn: existingPkg?.isBuiltIn || installedPkg?.isBuiltIn || false,
-          size: installedPkg?.size || existingPkg?.size || "Desconocido",
-          lastUpdated: pkgData.date,
-          latestVersion: pkgData.version,
-          hasUpdate: installedPkg?.hasUpdate || false,
+          size: installedPkg?.size || existingPkg?.size || "Desconocido", // Size might need separate fetching or estimation
+          lastUpdated: pkgData.date, // Assuming date is last publish date
+          latestVersion: pkgData.version, // Search result usually shows the latest version
+          hasUpdate: installedPkg?.hasUpdate || false, // This would need comparison if installed version differs
         };
       });
 
@@ -572,14 +665,16 @@ async function simulatePackageInstallation(
 }
 
 // Estimar el tamaño del paquete basado en la información del registro
-function calculatePackageSize(packageInfo: any): string {
+function calculatePackageSize(packageInfo: NpmPackageInfo): string {
   // Esta es una estimación muy simplificada
-  const versions = Object.keys(packageInfo.versions || {}).length;
-  const dependencies = Object.keys(
-    packageInfo.versions?.[packageInfo["dist-tags"]?.latest]?.dependencies || {}
-  ).length;
+  const latestVersionTag = packageInfo['dist-tags']?.latest;
+  const latestVersionInfo = latestVersionTag ? packageInfo.versions?.[latestVersionTag] : undefined;
+
+  const versionsCount = Object.keys(packageInfo.versions || {}).length;
+  const dependenciesCount = Object.keys(latestVersionInfo?.dependencies || {}).length;
 
   // Algoritmo simple de estimación
+  const sizeKB = Math.round(100 + dependenciesCount * 50 + versionsCount * 5);
   const sizeKB = Math.round(100 + dependencies * 50 + versions * 5);
 
   if (sizeKB < 1000) return `${sizeKB} KB`;

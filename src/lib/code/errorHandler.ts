@@ -12,16 +12,21 @@ export function parseError(error: any, phase: ErrorInfo['phase']): ErrorInfo {
   const errorMessage = error.message || error.toString();
   
   // Detectar tipo de error
-  let errorType: ErrorInfo['type'] = 'Error';
-  if (error instanceof SyntaxError || errorMessage.includes('SyntaxError')) {
+  let errorType: ErrorInfo['type'] = 'Error'; // Default
+  if (errorMessage.includes('Maximum call stack size exceeded')) {
+    errorType = 'RangeError'; // Often a symptom of infinite recursion
+  } else if (errorMessage.includes('Execution timeout:') || errorMessage.includes('tardó demasiado')) {
+    errorType = 'TimeoutError';
+  } else if (error instanceof SyntaxError || errorMessage.includes('SyntaxError')) {
     errorType = 'SyntaxError';
   } else if (error instanceof ReferenceError || errorMessage.includes('ReferenceError')) {
     errorType = 'ReferenceError';
   } else if (error instanceof TypeError || errorMessage.includes('TypeError')) {
     errorType = 'TypeError';
-  } else if (error instanceof RangeError || errorMessage.includes('RangeError')) {
+  } else if (error instanceof RangeError) { // Keep generic RangeError if not call stack
     errorType = 'RangeError';
   }
+
 
   // Extraer línea y columna del error si está disponible
   let line: number | undefined;
@@ -60,13 +65,27 @@ function cleanErrorMessage(message: string): string {
   // Remover información de posición redundante si ya la tenemos
   cleanMessage = cleanMessage.replace(/\(\d+:\d+\)/, '').trim();
   
-  // Limpiar mensaje de timeout
-  if (cleanMessage.includes('Execution timeout:')) {
-    cleanMessage = cleanMessage.replace('Execution timeout: ', '');
+  // Specific transformations / hints
+  if (cleanMessage.includes('Maximum call stack size exceeded')) {
+    cleanMessage = 'Maximum call stack size exceeded (potential infinite recursion).';
+  } else if (cleanMessage.includes('Execution timeout:') || cleanMessage.includes('tardó demasiado')) {
+    // Standardize timeout message, remove original prefix if present
+    cleanMessage = 'The code took too long to execute.';
+  } else {
+    // Hints for common errors
+    const referenceMatch = cleanMessage.match(/(\w+)\s+is\s+not\s+defined/);
+    if (referenceMatch) {
+      cleanMessage = `${cleanMessage.replace(/\.$/, '')} (ensure '${referenceMatch[1]}' is declared or imported).`;
+    }
+
+    const nullOrUndefinedReadMatch = cleanMessage.match(/Cannot read propert(?:ies|y)\s+'(?:\w+)'\s+of\s+(undefined|null)/);
+    if (nullOrUndefinedReadMatch) {
+      cleanMessage = `${cleanMessage.replace(/\.$/, '')} (check if the object is initialized before accessing its properties).`;
+    }
   }
   
-  // Asegurar que termine con punto
-  if (!cleanMessage.endsWith('.')) {
+  // Asegurar que termine con punto, unless it already has one from the hints
+  if (!cleanMessage.endsWith('.') && !cleanMessage.endsWith(').')) {
     cleanMessage += '.';
   }
   
@@ -174,14 +193,10 @@ export function formatErrorForDisplay(errorInfo: ErrorInfo): string {
 
 // Obtener prefijo con emoji para diferentes tipos de error
 function getErrorPrefix(errorType: ErrorInfo['type'], message?: string): string {
-  // Manejo especial para timeouts
-  if (message && message.includes('tardó demasiado')) {
-    return '⏱️ Timeout: ';
-  }
-  
-  // Manejo especial para bucles infinitos
+  // Manejo especial para bucles infinitos (puede ser un RangeError o un TimeoutError en la práctica)
+  // Se mantiene por si alguna detección específica de bucles se añade fuera del `errorType`
   if (message && (message.includes('Bucle detenido') || message.includes('bucle infinito'))) {
-    return '🔄 Loop Error: ';
+    return '🔄 Loop Error: '; // Consider if this should be part of cleanErrorMessage instead
   }
   
   switch (errorType) {
@@ -191,10 +206,12 @@ function getErrorPrefix(errorType: ErrorInfo['type'], message?: string): string 
       return '❓ ReferenceError: ';
     case 'TypeError':
       return '🔢 TypeError: ';
-    case 'RangeError':
+    case 'RangeError': // Covers "Maximum call stack size exceeded" as well
       return '📊 RangeError: ';
+    case 'TimeoutError':
+      return '⏱️ TimeoutError: ';
     default:
-      return '❌ Error: ';
+      return '❌ Error: '; // Genérico
   }
 }
 

@@ -32,6 +32,8 @@ interface FileTabProps {
   onRename: (newName: string) => void;
   onDuplicate: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  // Add actions for reordering from WorkspaceContext, passed down from FileManager
+  onReorder: (draggedId: string, targetId: string) => void;
 }
 
 function FileTab({
@@ -42,11 +44,14 @@ function FileTab({
   onRename,
   onDuplicate,
   onContextMenu,
+  onReorder,
 }: FileTabProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(file.name);
   const [isHovered, setIsHovered] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false); // For visual feedback
   const { currentTheme } = useToolbar();
+  const { actions } = useWorkspace(); // Direct access if preferred, or pass onReorder
 
   const handleRename = () => {
     if (editName.trim() && editName !== file.name) {
@@ -99,29 +104,74 @@ function FileTab({
     }
   };
 
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    e.dataTransfer.setData('text/plain', file.id);
+    e.dataTransfer.effectAllowed = 'move';
+    // Optional: style the dragged tab
+    // e.currentTarget.style.opacity = '0.5';
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const draggedFileId = e.dataTransfer.getData('text/plain');
+    const targetFileId = file.id;
+    if (draggedFileId && targetFileId && draggedFileId !== targetFileId) {
+      // Use the passed down onReorder or directly call actions.reorderFile
+      // For this example, assuming actions is available or onReorder is correctly passed
+      actions.reorderFile(draggedFileId, targetFileId);
+    }
+    setIsDragOver(false);
+    // Optional: reset opacity if changed in onDragStart
+    // e.currentTarget.style.opacity = '1';
+  };
+
+  // Reset opacity if drag ends elsewhere (e.g. outside a valid drop target)
+  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    // e.currentTarget.style.opacity = '1';
+  };
+
   return (
     <div
+      draggable="true"
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
       className={`
         group relative flex items-center gap-2 px-4 py-3 cursor-pointer transition-all duration-200 min-w-0 max-w-48
         border-r border-opacity-50 backdrop-blur-sm
-        ${
-          isActive
-            ? `bg-gradient-to-b ${getFileTypeGradient()} border-b-2 shadow-lg`
-            : `hover:shadow-md ${isHovered ? "transform scale-[1.02]" : ""}`
-        }
+        ${isActive ? `bg-gradient-to-b ${getFileTypeGradient()} border-b-2 shadow-lg`
+            : `hover:shadow-md ${isHovered ? "transform scale-[1.02]" : ""}`}
+        ${isDragOver ? 'ring-2 ring-[var(--theme-accent)] ring-inset' : ''}
       `}
       style={{
         backgroundColor: isActive ? undefined : 'var(--toolbar-hover)',
-        borderColor: 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
+        borderColor: isDragOver ? 'var(--theme-accent)' : 'color-mix(in srgb, var(--toolbar-text) 30%, transparent)',
         color: 'var(--toolbar-text)',
       }}
       onClick={onSelect}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseLeave={() => { setIsHovered(false); setIsDragOver(false); /* Ensure drag over resets if mouse leaves */ }}
       onContextMenu={onContextMenu}
+      data-file-id={file.id} // Useful for direct DOM manipulation if needed elsewhere (like rename)
     >
+      {/* Visual cue for drop target */}
+      {/* {isDragOver && <div className="absolute inset-0 border-2 border-dashed border-[var(--theme-accent)] rounded-md pointer-events-none"></div>} */}
+
       {/* Indicador de estado */}
-      <div className="flex items-center gap-2 min-w-0 flex-1">
+      <div className="flex items-center gap-2 min-w-0 flex-1 pointer-events-none"> {/* pointer-events-none for children during drag */}
         {getFileIcon()}
 
         {isEditing ? (
@@ -359,6 +409,7 @@ function FileManager() {
             onRename={(newName) => actions.renameFile(file.id, newName)}
             onDuplicate={() => actions.duplicateFile(file.id)}
             onContextMenu={(e) => handleTabContextMenu(e, file.id)}
+            onReorder={actions.reorderFile} // Pass the action
           />
         ))}
 

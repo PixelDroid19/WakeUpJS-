@@ -28,7 +28,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Diálogos específicos
   exportWorkspace: (workspaceData: string) => ipcRenderer.invoke('export-workspace-dialog', workspaceData),
   importWorkspace: () => ipcRenderer.invoke('import-workspace-dialog'),
-  showAbout: () => ipcRenderer.send('show-about-dialog')
+  showAbout: () => ipcRenderer.send('show-about-dialog'),
+  openDirectory: () => ipcRenderer.invoke('dialog:openDirectory')
 })
 
 setTimeout(removeLoading, 1000)

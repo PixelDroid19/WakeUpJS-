@@ -235,9 +235,9 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
 
   // Funciones del contexto
   const addSnippet = useCallback(
-    (snippet: Omit<Snippet, "id" | "createdAt" | "updatedAt">) => {
+    (snippetPayload: Omit<Snippet, "id" | "createdAt" | "updatedAt">) => {
       const newSnippet: Snippet = {
-        ...snippet,
+        ...snippetPayload,
         id: nanoid(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -247,8 +247,8 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
     []
   );
 
-  const updateSnippet = useCallback((id: string, snippet: Partial<Snippet>) => {
-    dispatch({ type: "UPDATE_SNIPPET", payload: { id, snippet } });
+  const updateSnippet = useCallback((id: string, snippetUpdate: Partial<Snippet>) => {
+    dispatch({ type: "UPDATE_SNIPPET", payload: { id, snippet: snippetUpdate } });
   }, []);
 
   const deleteSnippet = useCallback((id: string) => {
@@ -257,18 +257,23 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
 
   const duplicateSnippet = useCallback(
     (id: string) => {
-      const snippet = state.snippets.find((s) => s.id === id);
-      if (snippet) {
-        const duplicated = {
-          ...snippet,
-          name: `${snippet.name} (Copia)`,
-          prefix: `${snippet.prefix}_copy`,
-          isBuiltIn: false,
+      const originalSnippet = state.snippets.find((s) => s.id === id);
+      if (originalSnippet) {
+        const {
+          id: _id,
+          createdAt: _createdAt,
+          updatedAt: _updatedAt,
+          isBuiltIn: _isBuiltIn, // Ensure isBuiltIn is also omitted if intended, or handle explicitly
+          ...restOfSnippet
+        } = originalSnippet;
+
+        const newSnippetData: Omit<Snippet, "id" | "createdAt" | "updatedAt"> = {
+          ...restOfSnippet,
+          name: `${originalSnippet.name} (Copia)`,
+          prefix: `${originalSnippet.prefix}_copy`,
+          isBuiltIn: false, // New duplicated snippets are not built-in
         };
-        delete (duplicated as any).id;
-        delete (duplicated as any).createdAt;
-        delete (duplicated as any).updatedAt;
-        addSnippet(duplicated);
+        addSnippet(newSnippetData);
       }
     },
     [state.snippets, addSnippet]
@@ -377,7 +382,8 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
 
     // Aplicar ordenamiento
     filtered.sort((a, b) => {
-      let valueA: any, valueB: any;
+      let valueA: string | number | undefined;
+      let valueB: string | number | undefined;
 
       switch (state.sortBy) {
         case "name":
@@ -393,8 +399,8 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
           valueB = b.language.toLowerCase();
           break;
         case "category":
-          valueA = a.category?.toLowerCase() || "";
-          valueB = b.category?.toLowerCase() || "";
+          valueA = a.category?.toLowerCase(); // category can be undefined
+          valueB = b.category?.toLowerCase();
           break;
         case "createdAt":
           valueA = a.createdAt;
@@ -405,11 +411,18 @@ export function SnippetsProvider({ children }: SnippetsProviderProps) {
           valueB = b.updatedAt;
           break;
         default:
+          // Should not happen if sortBy is correctly typed
           return 0;
       }
 
-      if (valueA < valueB) return state.sortOrder === "asc" ? -1 : 1;
-      if (valueA > valueB) return state.sortOrder === "asc" ? 1 : -1;
+      // Handle undefined values to sort them consistently (e.g., at the end)
+      if (valueA === undefined && valueB !== undefined) return state.sortOrder === "asc" ? 1 : -1;
+      if (valueA !== undefined && valueB === undefined) return state.sortOrder === "asc" ? -1 : 1;
+      if (valueA === undefined && valueB === undefined) return 0;
+
+      // At this point, both valueA and valueB are defined (string or number)
+      if (valueA! < valueB!) return state.sortOrder === "asc" ? -1 : 1;
+      if (valueA! > valueB!) return state.sortOrder === "asc" ? 1 : -1;
       return 0;
     });
 

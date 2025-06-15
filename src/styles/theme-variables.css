@@ -15,6 +15,13 @@
   --theme-bg-tertiary: color-mix(in srgb, var(--theme-bg) 90%, white);
   --theme-border: color-mix(in srgb, var(--theme-fg) 20%, transparent);
   --theme-shadow: color-mix(in srgb, var(--theme-bg) 50%, black);
+
+  /* Default fallbacks for toolbar variables, can be overridden by theme manager */
+  --toolbar-bg: var(--theme-bg-secondary);
+  --toolbar-text: var(--theme-fg);
+  --toolbar-accent: var(--theme-accent);
+  --toolbar-hover: var(--theme-bg-tertiary);
+  --toolbar-border: var(--theme-border); /* Added for completeness */
 }
 
 /* Estilos para el tema One Dark */

@@ -1,6 +1,7 @@
-import { useContext, useMemo, useRef, useEffect, useCallback } from "react";
+import { useContext, useMemo, useRef, useEffect, useCallback, MouseEvent } from "react";
 import { CodeResultContext, ResultElement } from "../context/CodeContext";
 import { useWorkspace } from "../context/WorkspaceContext";
+import type { editor } from 'monaco-editor';
 import { useToolbar } from "../context/ToolbarContext";
 import { useAutoExecutionConfig } from "../context/ConfigContext";
 import { useCodeEditor } from "../hooks/useCodeEditor";
@@ -41,7 +42,11 @@ const CONSOLE_METHOD_PREFIXES: {
   [ConsoleMethod.CREATE_TASK]: { prefix: "⚙️ ", color: Colors.GREEN },
 };
 
-function Result() {
+interface ResultProps {
+  editorRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
+}
+
+function Result({ editorRef: mainEditorRef }: ResultProps) {
   const { result } = useContext(CodeResultContext);
   const { utils } = useWorkspace();
   const { config } = useToolbar();
@@ -192,19 +197,46 @@ function Result() {
   // Función para formatear un error específico
   const formatErrorMessage = (errorMessage: string, info?: any): string => {
     if (!errorMessage) return '';
-    
-    // Quitar prefijos comunes de errores para simplificar
     let cleanMessage = errorMessage
       .replace(/^Error: /, '')
       .replace(/^SyntaxError: /, 'Syntax: ');
-    
-    // Formatear ubicación del error si está disponible
-    let location = '';
-    if (info && info.line) {
-      location = ` (línea ${info.line}${info.column ? `, columna ${info.column}` : ''})`;
+    return cleanMessage;
+  };
+
+  const handleErrorMessageClick = (e: MouseEvent<HTMLSpanElement>) => {
+    if (mainEditorRef.current && errorInfo && errorInfo.line) {
+      e.preventDefault(); // Prevent any default span behavior
+      mainEditorRef.current.focus();
+      mainEditorRef.current.setPosition({ lineNumber: errorInfo.line, column: errorInfo.column || 1 });
+      mainEditorRef.current.revealLineInCenterIfOutsideViewport(errorInfo.line);
     }
-    
-    return `❌ Error${info?.type ? ` de ${info.type}` : ''}: ${cleanMessage}${location}`;
+  };
+
+  const renderClickableErrorMessage = () => {
+    if (!error) return null;
+
+    const cleanMessage = formatErrorMessage(error, errorInfo);
+    const hasLocation = errorInfo && errorInfo.line;
+
+    const messagePrefix = `❌ Error${errorInfo?.type ? ` de ${errorInfo.type}` : ''}: `;
+    const locationText = hasLocation ? ` (línea ${errorInfo.line}${errorInfo.column ? `, col ${errorInfo.column}` : ''})` : '';
+
+    if (hasLocation) {
+      return (
+        <>
+          {messagePrefix}
+          {cleanMessage}
+          <span
+            onClick={handleErrorMessageClick}
+            className="underline cursor-pointer hover:text-blue-400"
+            title="Ir a la línea del error"
+          >
+            {locationText}
+          </span>
+        </>
+      );
+    }
+    return <>{messagePrefix}{cleanMessage}{locationText}</>;
   };
 
   // Efecto para manejar errores específicos del motor de ejecución
@@ -232,9 +264,9 @@ function Result() {
             <div className="mt-3 text-red-400 border border-red-800 rounded-md p-3 mx-auto max-w-md bg-red-900/20">
               <div className="text-sm font-medium mb-1">Error detectado:</div>
               <div className="text-xs overflow-auto max-h-32">
-                {formatErrorMessage(error, errorInfo)}
+                {renderClickableErrorMessage()}
               </div>
-              <button 
+              <button
                 onClick={clearError}
                 className="mt-2 px-2 py-1 text-xs bg-red-800/40 hover:bg-red-800/60 rounded"
               >
@@ -337,11 +369,11 @@ function Result() {
           <div className="flex items-center gap-2 text-xs">
             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
             <span className="font-medium overflow-hidden text-ellipsis whitespace-nowrap">
-              {formatErrorMessage(error, errorInfo)}
+              {renderClickableErrorMessage()}
             </span>
-            <button 
+            <button
               onClick={clearError}
-              className="ml-auto bg-red-800/50 hover:bg-red-800 px-2 py-1 rounded text-xs"
+              className="ml-auto bg-red-800/50 hover:bg-red-800 px-2 py-1 rounded text-xs shrink-0"
             >
               Limpiar
             </button>
