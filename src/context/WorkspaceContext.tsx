@@ -4,7 +4,6 @@ import {
   useReducer,
   useCallback,
   useEffect,
-  useCallback, // Already present, good.
 } from "react";
 import { setEnvironmentVariables } from "../lib/code/run";
 import type { ResultElement, ErrorInfo } from "./CodeContext"; // Import types

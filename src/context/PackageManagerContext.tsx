@@ -675,7 +675,7 @@ function calculatePackageSize(packageInfo: NpmPackageInfo): string {
 
   // Algoritmo simple de estimación
   const sizeKB = Math.round(100 + dependenciesCount * 50 + versionsCount * 5);
-  const sizeKB = Math.round(100 + dependencies * 50 + versions * 5);
+  //const sizeKB = Math.round(100 + dependencies * 50 + versions * 5);
 
   if (sizeKB < 1000) return `${sizeKB} KB`;
   return `${(sizeKB / 1024).toFixed(1)} MB`;
